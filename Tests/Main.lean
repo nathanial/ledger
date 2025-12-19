@@ -463,6 +463,97 @@ def testQueries : IO Unit := do
 
   IO.println ""
 
+/-- Test Pull API. -/
+def testPullAPI : IO Unit := do
+  IO.println "Testing Pull API..."
+
+  -- Set up a database with people and relationships
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let (bob, db) := db.allocEntityId
+  let (charlie, db) := db.allocEntityId
+  let (project, db) := db.allocEntityId
+
+  let tx : Transaction := [
+    .add alice (Attribute.mk ":person/name") (Value.string "Alice"),
+    .add alice (Attribute.mk ":person/age") (Value.int 30),
+    .add alice (Attribute.mk ":person/email") (Value.string "alice@example.com"),
+    .add bob (Attribute.mk ":person/name") (Value.string "Bob"),
+    .add bob (Attribute.mk ":person/age") (Value.int 25),
+    .add charlie (Attribute.mk ":person/name") (Value.string "Charlie"),
+    .add charlie (Attribute.mk ":person/age") (Value.int 35),
+    -- Alice is friends with Bob
+    .add alice (Attribute.mk ":person/friend") (Value.ref bob),
+    -- Project with team members
+    .add project (Attribute.mk ":project/name") (Value.string "Ledger"),
+    .add alice (Attribute.mk ":person/works-on") (Value.ref project),
+    .add bob (Attribute.mk ":person/works-on") (Value.ref project)
+  ]
+
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
+
+  -- Test 1: Pull single attribute
+  let result1 := Pull.pullOne db alice ":person/name"
+  test "Pull: single attribute" (result1 == some (Value.string "Alice"))
+
+  -- Test 2: Pull multiple attributes
+  let result2 := Pull.pullAttrs db alice [":person/name", ":person/age"]
+  test "Pull: multiple attrs size" (result2.size == 2)
+
+  -- Test 3: Pull with wildcard (all attributes)
+  let result3 := Pull.pull db alice [.wildcard]
+  test "Pull: wildcard has name" (result3.get? (Attribute.mk ":person/name")).isSome
+  test "Pull: wildcard has age" (result3.get? (Attribute.mk ":person/age")).isSome
+  test "Pull: wildcard has email" (result3.get? (Attribute.mk ":person/email")).isSome
+
+  -- Test 4: Pull with nested entity
+  let result4 := Pull.pull db alice [
+    .attr (Attribute.mk ":person/name"),
+    .nested (Attribute.mk ":person/friend") [
+      .attr (Attribute.mk ":person/name")
+    ]
+  ]
+  test "Pull: nested has friend" (result4.get? (Attribute.mk ":person/friend")).isSome
+  -- Check the nested value is an entity
+  match result4.get? (Attribute.mk ":person/friend") with
+  | some (.entity data) =>
+    let friendName := data.find? fun (a, _) => a == Attribute.mk ":person/name"
+    match friendName with
+    | some (_, .scalar (.string name)) =>
+      test "Pull: nested friend name" (name == "Bob")
+    | _ => test "Pull: nested friend name" false
+  | _ => test "Pull: nested is entity" false
+
+  -- Test 5: Pull with reverse reference
+  let result5 := Pull.pull db project [
+    .attr (Attribute.mk ":project/name"),
+    .reverse (Attribute.mk ":person/works-on") [
+      .attr (Attribute.mk ":person/name")
+    ]
+  ]
+  test "Pull: reverse has workers" (result5.get? (Attribute.mk ":person/works-on")).isSome
+  -- Check that we got multiple workers
+  match result5.get? (Attribute.mk ":person/works-on") with
+  | some (.many workers) =>
+    test "Pull: reverse worker count" (workers.length == 2)
+  | _ => test "Pull: reverse is many" false
+
+  -- Test 6: Pull with default value
+  let result6 := Pull.pull db charlie [
+    .attr (Attribute.mk ":person/name"),
+    .withDefault (Attribute.mk ":person/email") "no-email@example.com"
+  ]
+  match result6.get? (Attribute.mk ":person/email") with
+  | some (.scalar (.string email)) =>
+    test "Pull: default value" (email == "no-email@example.com")
+  | _ => test "Pull: default is string" false
+
+  -- Test 7: Pull many entities
+  let results7 := Pull.pullMany db [alice, bob, charlie] [.attr (Attribute.mk ":person/name")]
+  test "Pull: many entities count" (results7.length == 3)
+
+  IO.println ""
+
 /-- Main test runner. -/
 def main : IO Unit := do
   IO.println "╔══════════════════════════════════════╗"
@@ -481,6 +572,7 @@ def main : IO Unit := do
   testRetractions
   testEntityHistory
   testQueries
+  testPullAPI
 
   IO.println "════════════════════════════════════════"
   IO.println "All tests passed!"
