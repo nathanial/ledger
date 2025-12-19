@@ -21,3 +21,10 @@ import Ledger.Tx.Types
 import Ledger.Db.Database
 import Ledger.Db.TimeTravel
 import Ledger.Db.Connection
+
+-- Query engine
+import Ledger.Query.AST
+import Ledger.Query.Binding
+import Ledger.Query.Unify
+import Ledger.Query.IndexSelect
+import Ledger.Query.Executor

@@ -381,6 +381,88 @@ def testEntityHistory : IO Unit := do
 
   IO.println ""
 
+/-- Test Datalog queries. -/
+def testQueries : IO Unit := do
+  IO.println "Testing Datalog Queries..."
+
+  -- Set up a database with people and relationships
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let (bob, db) := db.allocEntityId
+  let (charlie, db) := db.allocEntityId
+
+  let tx : Transaction := [
+    .add alice (Attribute.mk ":person/name") (Value.string "Alice"),
+    .add alice (Attribute.mk ":person/age") (Value.int 30),
+    .add bob (Attribute.mk ":person/name") (Value.string "Bob"),
+    .add bob (Attribute.mk ":person/age") (Value.int 25),
+    .add charlie (Attribute.mk ":person/name") (Value.string "Charlie"),
+    .add charlie (Attribute.mk ":person/age") (Value.int 30),
+    .add alice (Attribute.mk ":person/friend") (Value.ref bob)
+  ]
+
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
+
+  -- Test 1: Simple pattern - find all entities with :person/name
+  let pattern1 : Pattern := {
+    entity := .var ⟨"e"⟩
+    attr := .attr (Attribute.mk ":person/name")
+    value := .var ⟨"name"⟩
+  }
+  let result1 := Query.findEntities pattern1 db
+  test "Query: entities with name" (result1.length == 3)
+
+  -- Test 2: Pattern with constant value - find entities with age 30
+  let pattern2 : Pattern := {
+    entity := .var ⟨"e"⟩
+    attr := .attr (Attribute.mk ":person/age")
+    value := .value (Value.int 30)
+  }
+  let result2 := Query.findEntities pattern2 db
+  test "Query: entities with age 30" (result2.length == 2)
+  test "Query: alice has age 30" (result2.contains alice)
+  test "Query: charlie has age 30" (result2.contains charlie)
+
+  -- Test 3: Full query with multiple patterns - find name of people aged 30
+  let query3 : Query := {
+    find := [⟨"name"⟩]
+    where_ := [
+      .pattern {
+        entity := .var ⟨"e"⟩
+        attr := .attr (Attribute.mk ":person/age")
+        value := .value (Value.int 30)
+      },
+      .pattern {
+        entity := .var ⟨"e"⟩
+        attr := .attr (Attribute.mk ":person/name")
+        value := .var ⟨"name"⟩
+      }
+    ]
+  }
+  let result3 := Query.execute query3 db
+  test "Query: multi-pattern result count" (result3.size == 2)
+
+  -- Test 4: Query with entity reference
+  let pattern4 : Pattern := {
+    entity := .var ⟨"e"⟩
+    attr := .attr (Attribute.mk ":person/friend")
+    value := .var ⟨"friend"⟩
+  }
+  let result4 := Query.findEntities pattern4 db
+  test "Query: entities with friends" (result4.length == 1)
+  test "Query: alice has friend" (result4.contains alice)
+
+  -- Test 5: Query with bound entity
+  let pattern5 : Pattern := {
+    entity := .entity alice
+    attr := .attr (Attribute.mk ":person/name")
+    value := .var ⟨"name"⟩
+  }
+  let result5 := Query.executePattern pattern5 Binding.empty db.indexes
+  test "Query: alice's name binding" (result5.size == 1)
+
+  IO.println ""
+
 /-- Main test runner. -/
 def main : IO Unit := do
   IO.println "╔══════════════════════════════════════╗"
@@ -398,6 +480,7 @@ def main : IO Unit := do
   testTimeTravel
   testRetractions
   testEntityHistory
+  testQueries
 
   IO.println "════════════════════════════════════════"
   IO.println "All tests passed!"
