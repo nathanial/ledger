@@ -90,14 +90,34 @@ def transact (db : Db) (tx : Transaction) (instant : Nat := 0) : Except TxError 
 def entity (db : Db) (e : EntityId) : List Datom :=
   db.indexes.datomsForEntity e
 
-/-- Get all values for a specific attribute of an entity. -/
+/-- Filter datoms to get only visible (not retracted) values.
+    For each (entity, attr, value), check if the most recent datom is an assertion. -/
+private def filterVisible (datoms : List Datom) : List Value :=
+  -- Group datoms by value, then for each value keep only if latest is assertion
+  let grouped : List (Value × List Datom) := datoms.foldl
+    (fun (acc : List (Value × List Datom)) (d : Datom) =>
+      match acc.find? (fun (v, _) => v == d.value) with
+      | some _ => acc.map fun (v, ds') => if v == d.value then (v, d :: ds') else (v, ds')
+      | none => (d.value, [d]) :: acc)
+    []
+  grouped.filterMap fun (v, ds) =>
+    -- Sort by tx descending and check if most recent is added
+    let sorted := ds.toArray.qsort (fun a b => a.tx.id > b.tx.id)
+    if h : sorted.size > 0 then
+      if sorted[0].added then some v else none
+    else
+      none
+
+/-- Get all values for a specific attribute of an entity.
+    Only returns values that are currently asserted (not retracted). -/
 def get (db : Db) (e : EntityId) (a : Attribute) : List Value :=
-  db.indexes.valuesForEntityAttr e a
+  let datoms := db.indexes.datomsForEntityAttr e a
+  filterVisible datoms
 
 /-- Get a single value for an attribute (assumes cardinality one).
-    Returns the most recently asserted value. -/
+    Returns the most recently asserted value that hasn't been retracted. -/
 def getOne (db : Db) (e : EntityId) (a : Attribute) : Option Value :=
-  (db.indexes.valuesForEntityAttr e a).head?
+  (db.get e a).head?
 
 -- ============================================================
 -- Attribute-based queries (use AEVT index)

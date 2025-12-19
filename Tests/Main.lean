@@ -255,6 +255,132 @@ def testReverseRefs : IO Unit := do
 
   IO.println ""
 
+/-- Test time-travel with Connection. -/
+def testTimeTravel : IO Unit := do
+  IO.println "Testing Time Travel..."
+
+  let conn := Connection.create
+  let (alice, conn) := conn.allocEntityId
+
+  -- Transaction 1: Add Alice with age 25
+  let tx1 : Transaction := [
+    .add alice (Attribute.mk ":person/name") (Value.string "Alice"),
+    .add alice (Attribute.mk ":person/age") (Value.int 25)
+  ]
+  let .ok (conn, report1) := conn.transact tx1 | throw <| IO.userError "Tx1 failed"
+  let tx1Id := report1.txId
+
+  -- Transaction 2: Update Alice's age to 26
+  let tx2 : Transaction := [
+    .retract alice (Attribute.mk ":person/age") (Value.int 25),
+    .add alice (Attribute.mk ":person/age") (Value.int 26)
+  ]
+  let .ok (conn, report2) := conn.transact tx2 | throw <| IO.userError "Tx2 failed"
+  let tx2Id := report2.txId
+
+  -- Transaction 3: Update Alice's age to 27
+  let tx3 : Transaction := [
+    .retract alice (Attribute.mk ":person/age") (Value.int 26),
+    .add alice (Attribute.mk ":person/age") (Value.int 27)
+  ]
+  let .ok (conn, _) := conn.transact tx3 | throw <| IO.userError "Tx3 failed"
+
+  -- Current database should show age 27
+  let currentAge := conn.current.getOne alice (Attribute.mk ":person/age")
+  test "Current age is 27" (currentAge == some (Value.int 27))
+
+  -- asOf tx1 should show age 25
+  let dbAtTx1 := conn.asOf tx1Id
+  let ageAtTx1 := dbAtTx1.getOne alice (Attribute.mk ":person/age")
+  test "Age at tx1 is 25" (ageAtTx1 == some (Value.int 25))
+
+  -- asOf tx2 should show age 26
+  let dbAtTx2 := conn.asOf tx2Id
+  let ageAtTx2 := dbAtTx2.getOne alice (Attribute.mk ":person/age")
+  test "Age at tx2 is 26" (ageAtTx2 == some (Value.int 26))
+
+  -- since tx1 should include tx2 and tx3 datoms
+  let changesSinceTx1 := conn.since tx1Id
+  test "Changes since tx1" (changesSinceTx1.length == 4)  -- 2 from tx2 + 2 from tx3
+
+  -- History should show all changes
+  let history := conn.attrHistory alice (Attribute.mk ":person/age")
+  test "History has 5 entries" (history.length == 5)  -- add 25, retract 25, add 26, retract 26, add 27
+
+  IO.println ""
+
+/-- Test retractions. -/
+def testRetractions : IO Unit := do
+  IO.println "Testing Retractions..."
+
+  let conn := Connection.create
+  let (alice, conn) := conn.allocEntityId
+
+  -- Add Alice
+  let tx1 : Transaction := [
+    .add alice (Attribute.mk ":person/name") (Value.string "Alice"),
+    .add alice (Attribute.mk ":person/email") (Value.string "alice@example.com")
+  ]
+  let .ok (conn, _) := conn.transact tx1 | throw <| IO.userError "Tx1 failed"
+
+  -- Verify both attributes exist
+  test "Has name" (conn.current.getOne alice (Attribute.mk ":person/name") == some (Value.string "Alice"))
+  test "Has email" (conn.current.getOne alice (Attribute.mk ":person/email") == some (Value.string "alice@example.com"))
+
+  -- Retract email
+  let tx2 : Transaction := [
+    .retract alice (Attribute.mk ":person/email") (Value.string "alice@example.com")
+  ]
+  let .ok (conn, _) := conn.transact tx2 | throw <| IO.userError "Tx2 failed"
+
+  -- Name should still exist, email should be gone
+  test "Still has name" (conn.current.getOne alice (Attribute.mk ":person/name") == some (Value.string "Alice"))
+
+  -- Email should be retracted (not visible in current view)
+  let email := conn.current.getOne alice (Attribute.mk ":person/email")
+  test "Email retracted" (email.isNone)
+
+  IO.println ""
+
+/-- Test entity history. -/
+def testEntityHistory : IO Unit := do
+  IO.println "Testing Entity History..."
+
+  let conn := Connection.create
+  let (alice, conn) := conn.allocEntityId
+
+  -- Multiple updates over time
+  let tx1 : Transaction := [.add alice (Attribute.mk ":person/status") (Value.string "new")]
+  let .ok (conn, _) := conn.transact tx1 | throw <| IO.userError "Tx1 failed"
+
+  let tx2 : Transaction := [
+    .retract alice (Attribute.mk ":person/status") (Value.string "new"),
+    .add alice (Attribute.mk ":person/status") (Value.string "active")
+  ]
+  let .ok (conn, _) := conn.transact tx2 | throw <| IO.userError "Tx2 failed"
+
+  let tx3 : Transaction := [
+    .retract alice (Attribute.mk ":person/status") (Value.string "active"),
+    .add alice (Attribute.mk ":person/status") (Value.string "inactive")
+  ]
+  let .ok (conn, _) := conn.transact tx3 | throw <| IO.userError "Tx3 failed"
+
+  -- Get full history
+  let history := conn.entityHistory alice
+  test "Entity history count" (history.length == 5)  -- 1 + 2 + 2
+
+  -- Get attribute history
+  let statusHistory := conn.attrHistory alice (Attribute.mk ":person/status")
+  test "Status history count" (statusHistory.length == 5)
+
+  -- Verify order (should be sorted by tx)
+  let txIds := statusHistory.map (·.tx.id)
+  let sortedIds := (txIds.toArray.qsort (· < ·)).toList
+  let isSorted := txIds == sortedIds
+  test "History is sorted" isSorted
+
+  IO.println ""
+
 /-- Main test runner. -/
 def main : IO Unit := do
   IO.println "╔══════════════════════════════════════╗"
@@ -269,6 +395,9 @@ def main : IO Unit := do
   testAttributeQueries
   testValueQueries
   testReverseRefs
+  testTimeTravel
+  testRetractions
+  testEntityHistory
 
   IO.println "════════════════════════════════════════"
   IO.println "All tests passed!"
