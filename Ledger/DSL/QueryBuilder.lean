@@ -1,0 +1,135 @@
+/-
+  Ledger.DSL.QueryBuilder
+
+  Fluent builder API for constructing Datalog queries.
+  Provides a more ergonomic way to build queries without macros.
+-/
+
+import Ledger.Core.EntityId
+import Ledger.Core.Attribute
+import Ledger.Core.Value
+import Ledger.Query.AST
+import Ledger.Query.Binding
+import Ledger.Query.Executor
+import Ledger.Db.Database
+
+namespace Ledger
+
+namespace DSL
+
+/-- Query builder for fluent query construction. -/
+structure QueryBuilder where
+  findVars : List Var := []
+  patterns : List Pattern := []
+  deriving Repr, Inhabited
+
+namespace QueryBuilder
+
+/-- Create a new query builder. -/
+def new : QueryBuilder := {}
+
+/-- Add a variable to the find clause. -/
+def find (qb : QueryBuilder) (varName : String) : QueryBuilder :=
+  { qb with findVars := qb.findVars ++ [⟨varName⟩] }
+
+/-- Add multiple variables to the find clause. -/
+def findAll (qb : QueryBuilder) (varNames : List String) : QueryBuilder :=
+  { qb with findVars := qb.findVars ++ varNames.map Var.mk }
+
+/-- Add a pattern to the where clause using a variable for entity. -/
+def where_ (qb : QueryBuilder) (eVar : String) (attr : String) (vVar : String) : QueryBuilder :=
+  let pattern : Pattern := {
+    entity := .var ⟨eVar⟩
+    attr := .attr (Attribute.mk attr)
+    value := .var ⟨vVar⟩
+  }
+  { qb with patterns := qb.patterns ++ [pattern] }
+
+/-- Add a pattern with a constant entity. -/
+def whereEntity (qb : QueryBuilder) (e : EntityId) (attr : String) (vVar : String) : QueryBuilder :=
+  let pattern : Pattern := {
+    entity := .entity e
+    attr := .attr (Attribute.mk attr)
+    value := .var ⟨vVar⟩
+  }
+  { qb with patterns := qb.patterns ++ [pattern] }
+
+/-- Add a pattern with a constant value (int). -/
+def whereInt (qb : QueryBuilder) (eVar : String) (attr : String) (v : Int) : QueryBuilder :=
+  let pattern : Pattern := {
+    entity := .var ⟨eVar⟩
+    attr := .attr (Attribute.mk attr)
+    value := .value (.int v)
+  }
+  { qb with patterns := qb.patterns ++ [pattern] }
+
+/-- Add a pattern with a constant value (string). -/
+def whereStr (qb : QueryBuilder) (eVar : String) (attr : String) (v : String) : QueryBuilder :=
+  let pattern : Pattern := {
+    entity := .var ⟨eVar⟩
+    attr := .attr (Attribute.mk attr)
+    value := .value (.string v)
+  }
+  { qb with patterns := qb.patterns ++ [pattern] }
+
+/-- Add a pattern with a constant value (ref). -/
+def whereRef (qb : QueryBuilder) (eVar : String) (attr : String) (ref : EntityId) : QueryBuilder :=
+  let pattern : Pattern := {
+    entity := .var ⟨eVar⟩
+    attr := .attr (Attribute.mk attr)
+    value := .entity ref
+  }
+  { qb with patterns := qb.patterns ++ [pattern] }
+
+/-- Build the query. -/
+def build (qb : QueryBuilder) : Query :=
+  { find := qb.findVars
+  , where_ := qb.patterns.map .pattern }
+
+/-- Build and execute the query. -/
+def run (qb : QueryBuilder) (db : Db) : Query.QueryResult :=
+  Query.execute qb.build db
+
+/-- Build and execute, returning just the bindings. -/
+def runRaw (qb : QueryBuilder) (db : Db) : Relation :=
+  Query.executeRaw qb.build db
+
+end QueryBuilder
+
+/-- Shorthand for creating a query builder. -/
+def query : QueryBuilder := QueryBuilder.new
+
+/-- Quick query: find entities with a specific attribute. -/
+def findEntitiesWith (db : Db) (attr : String) : List EntityId :=
+  let pattern : Pattern := {
+    entity := .var ⟨"e"⟩
+    attr := .attr (Attribute.mk attr)
+    value := .blank
+  }
+  Query.findEntities pattern db
+
+/-- Quick query: find entities where attr = value (int). -/
+def findEntitiesWhereInt (db : Db) (attr : String) (v : Int) : List EntityId :=
+  let pattern : Pattern := {
+    entity := .var ⟨"e"⟩
+    attr := .attr (Attribute.mk attr)
+    value := .value (.int v)
+  }
+  Query.findEntities pattern db
+
+/-- Quick query: find entities where attr = value (string). -/
+def findEntitiesWhereStr (db : Db) (attr : String) (v : String) : List EntityId :=
+  let pattern : Pattern := {
+    entity := .var ⟨"e"⟩
+    attr := .attr (Attribute.mk attr)
+    value := .value (.string v)
+  }
+  Query.findEntities pattern db
+
+/-- Quick query: find entity by unique attribute value. -/
+def findEntityByStr (db : Db) (attr : String) (v : String) : Option EntityId :=
+  (findEntitiesWhereStr db attr v).head?
+
+end DSL
+
+end Ledger

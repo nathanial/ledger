@@ -554,6 +554,73 @@ def testPullAPI : IO Unit := do
 
   IO.println ""
 
+/-- Test DSL builders. -/
+def testDSL : IO Unit := do
+  IO.println "Testing DSL Builders..."
+
+  -- Test Transaction Builder
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let (bob, db) := db.allocEntityId
+
+  -- Build a transaction using the fluent API
+  let txb := DSL.tx
+    |>.addStr alice ":person/name" "Alice"
+    |>.addInt alice ":person/age" 30
+    |>.addStr bob ":person/name" "Bob"
+    |>.addRef alice ":person/friend" bob
+
+  let .ok (db, _) := txb.run db | throw <| IO.userError "TxBuilder failed"
+
+  test "DSL: TxBuilder name" (DSL.attrStr db alice ":person/name" == some "Alice")
+  test "DSL: TxBuilder age" (DSL.attrInt db alice ":person/age" == some 30)
+  test "DSL: TxBuilder ref" (DSL.attrRef db alice ":person/friend" == some bob)
+
+  -- Test Query Builder
+  let qb := DSL.query
+    |>.find "name"
+    |>.where_ "e" ":person/name" "name"
+    |>.whereInt "e" ":person/age" 30
+
+  let result := qb.run db
+  test "DSL: QueryBuilder result" (result.size == 1)
+
+  -- Test Pull Builder
+  let pb := DSL.pull
+    |>.attr ":person/name"
+    |>.attr ":person/age"
+    |>.nested ":person/friend" [":person/name"]
+
+  let pullResult := pb.run db alice
+  test "DSL: PullBuilder has name" (pullResult.get? (Attribute.mk ":person/name")).isSome
+  test "DSL: PullBuilder has age" (pullResult.get? (Attribute.mk ":person/age")).isSome
+  test "DSL: PullBuilder has friend" (pullResult.get? (Attribute.mk ":person/friend")).isSome
+
+  -- Test Combinators
+  test "DSL: findByStr" ((DSL.findByStr db ":person/name" "Alice").length == 1)
+  test "DSL: findOneByStr" (DSL.findOneByStr db ":person/name" "Alice" == some alice)
+  test "DSL: follow" (DSL.follow db alice ":person/friend" == some bob)
+
+  -- Test followAndGet
+  let friendName := DSL.followAndGet db alice ":person/friend" ":person/name"
+  test "DSL: followAndGet" (friendName == some (Value.string "Bob"))
+
+  -- Test allWith
+  let withName := DSL.allWith db ":person/name"
+  test "DSL: allWith" (withName.length == 2)
+
+  -- Test entity builder
+  let eb := DSL.tx
+    |>.entity alice
+    |>.str ":person/email" "alice@example.com"
+    |>.int ":person/score" 100
+
+  let .ok (db, _) := eb.done.run db | throw <| IO.userError "EntityBuilder failed"
+  test "DSL: EntityBuilder email" (DSL.attrStr db alice ":person/email" == some "alice@example.com")
+  test "DSL: EntityBuilder score" (DSL.attrInt db alice ":person/score" == some 100)
+
+  IO.println ""
+
 /-- Main test runner. -/
 def main : IO Unit := do
   IO.println "╔══════════════════════════════════════╗"
@@ -573,6 +640,7 @@ def main : IO Unit := do
   testEntityHistory
   testQueries
   testPullAPI
+  testDSL
 
   IO.println "════════════════════════════════════════"
   IO.println "All tests passed!"

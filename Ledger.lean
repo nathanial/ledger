@@ -33,3 +33,9 @@ import Ledger.Query.Executor
 import Ledger.Pull.Pattern
 import Ledger.Pull.Result
 import Ledger.Pull.Executor
+
+-- DSL and Builders
+import Ledger.DSL.QueryBuilder
+import Ledger.DSL.PullBuilder
+import Ledger.DSL.TxBuilder
+import Ledger.DSL.Combinators
