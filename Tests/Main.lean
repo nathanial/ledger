@@ -4,426 +4,618 @@
   Basic tests for the Ledger database.
 -/
 
+import Crucible
 import Ledger
 
+namespace Ledger.Tests
+
+open Crucible
 open Ledger
 
-/-- Simple test helper. -/
-def test (name : String) (cond : Bool) : IO Unit := do
-  if cond then
-    IO.println s!"✓ {name}"
-  else
-    IO.println s!"✗ {name}"
-    throw <| IO.userError s!"Test failed: {name}"
+testSuite "Ledger Tests"
 
-/-- Test core types. -/
-def testCoreTypes : IO Unit := do
-  IO.println "Testing Core Types..."
+/-! ## Core Types Tests -/
 
-  -- EntityId tests
+test "EntityId equality" := do
+  let e1 := EntityId.mk 1
+  ensure (e1 == e1) "EntityId should equal itself"
+
+test "EntityId inequality" := do
   let e1 := EntityId.mk 1
   let e2 := EntityId.mk 2
-  test "EntityId equality" (e1 == e1)
-  test "EntityId inequality" (e1 != e2)
-  test "EntityId ordering" (compare e1 e2 == .lt)
-  test "EntityId temp check" (EntityId.mk (-1) |>.isTemp)
+  ensure (e1 != e2) "Different EntityIds should not be equal"
 
-  -- TxId tests
+test "EntityId ordering" := do
+  let e1 := EntityId.mk 1
+  let e2 := EntityId.mk 2
+  ensure (compare e1 e2 == .lt) "EntityId 1 should be less than 2"
+
+test "EntityId temp check" := do
+  ensure (EntityId.mk (-1) |>.isTemp) "Negative EntityId should be temp"
+
+test "TxId next" := do
   let t1 := TxId.mk 1
   let t2 := t1.next
-  test "TxId next" (t2.id == 2)
+  t2.id ≡ 2
 
-  -- Attribute tests
+test "Attribute equality" := do
   let a1 := Attribute.mk ":person/name"
+  ensure (a1 == a1) "Attribute should equal itself"
+
+test "Attribute keyword" := do
   let a2 := Attribute.keyword "person" "age"
-  test "Attribute equality" (a1 == a1)
-  test "Attribute keyword" (a2.name == ":person/age")
+  a2.name ≡ ":person/age"
 
-  -- Value tests
-  test "Value int" (Value.int 42 == Value.int 42)
-  test "Value string" (Value.string "hello" == Value.string "hello")
-  test "Value ordering same type" (compare (Value.int 1) (Value.int 2) == .lt)
-  test "Value ordering diff type" (compare (Value.int 0) (Value.string "") == .lt)
+test "Value int equality" := do
+  ensure (Value.int 42 == Value.int 42) "Same int values should be equal"
 
-  IO.println ""
+test "Value string equality" := do
+  ensure (Value.string "hello" == Value.string "hello") "Same string values should be equal"
 
-/-- Test datom creation and comparison. -/
-def testDatoms : IO Unit := do
-  IO.println "Testing Datoms..."
+test "Value ordering same type" := do
+  ensure (compare (Value.int 1) (Value.int 2) == .lt) "Int 1 should be less than 2"
 
+test "Value ordering diff type" := do
+  ensure (compare (Value.int 0) (Value.string "") == .lt) "Int should be less than string"
+
+/-! ## Datom Tests -/
+
+test "Datom added flag" := do
   let e := EntityId.mk 1
   let a := Attribute.mk ":person/name"
   let v := Value.string "Alice"
   let t := TxId.mk 1
-
   let d1 := Datom.assert e a v t
-  test "Datom added flag" d1.added
+  ensure d1.added "Asserted datom should have added=true"
 
+test "Datom retracted flag" := do
+  let e := EntityId.mk 1
+  let a := Attribute.mk ":person/name"
+  let v := Value.string "Alice"
+  let t := TxId.mk 1
   let d2 := Datom.retract e a v t
-  test "Datom retracted flag" (!d2.added)
+  ensure (!d2.added) "Retracted datom should have added=false"
 
-  test "Datom equality" (d1.entity == e && d1.attr == a && d1.value == v)
+test "Datom equality" := do
+  let e := EntityId.mk 1
+  let a := Attribute.mk ":person/name"
+  let v := Value.string "Alice"
+  let t := TxId.mk 1
+  let d1 := Datom.assert e a v t
+  ensure (d1.entity == e && d1.attr == a && d1.value == v) "Datom fields should match"
 
-  IO.println ""
+/-! ## Database Tests -/
 
-/-- Test basic database operations. -/
-def testDatabase : IO Unit := do
-  IO.println "Testing Database..."
-
-  -- Create empty database
+test "Empty db size" := do
   let db := Db.empty
-  test "Empty db size" (db.size == 0)
-  test "Empty db basisT" (db.basisT == TxId.genesis)
+  db.size ≡ 0
 
-  -- Allocate entity ID
+test "Empty db basisT" := do
+  let db := Db.empty
+  db.basisT ≡ TxId.genesis
+
+test "Allocated entity" := do
+  let db := Db.empty
+  let (e1, _) := db.allocEntityId
+  e1.id ≡ 1
+
+test "Transaction ID" := do
+  let db := Db.empty
   let (e1, db) := db.allocEntityId
-  test "Allocated entity" (e1.id == 1)
-
-  -- Create a transaction
   let tx : Transaction := [
     .add e1 (Attribute.mk ":person/name") (Value.string "Alice"),
     .add e1 (Attribute.mk ":person/age") (Value.int 30)
   ]
-
-  -- Process transaction
   match db.transact tx with
-  | .error err =>
-    throw <| IO.userError s!"Transaction failed: {err}"
-  | .ok (db', report) =>
-    test "Transaction ID" (report.txId.id == 1)
-    test "Transaction datoms count" (report.txData.size == 2)
-    test "Database size after tx" (db'.size == 2)
+  | .error err => throw <| IO.userError s!"Transaction failed: {err}"
+  | .ok (_, report) => report.txId.id ≡ 1
 
-    -- Query the entity
+test "Transaction datoms count" := do
+  let db := Db.empty
+  let (e1, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add e1 (Attribute.mk ":person/name") (Value.string "Alice"),
+    .add e1 (Attribute.mk ":person/age") (Value.int 30)
+  ]
+  match db.transact tx with
+  | .error err => throw <| IO.userError s!"Transaction failed: {err}"
+  | .ok (_, report) => report.txData.size ≡ 2
+
+test "Database size after tx" := do
+  let db := Db.empty
+  let (e1, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add e1 (Attribute.mk ":person/name") (Value.string "Alice"),
+    .add e1 (Attribute.mk ":person/age") (Value.int 30)
+  ]
+  match db.transact tx with
+  | .error err => throw <| IO.userError s!"Transaction failed: {err}"
+  | .ok (db', _) => db'.size ≡ 2
+
+test "Get name" := do
+  let db := Db.empty
+  let (e1, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add e1 (Attribute.mk ":person/name") (Value.string "Alice"),
+    .add e1 (Attribute.mk ":person/age") (Value.int 30)
+  ]
+  match db.transact tx with
+  | .error err => throw <| IO.userError s!"Transaction failed: {err}"
+  | .ok (db', _) =>
     let name := db'.getOne e1 (Attribute.mk ":person/name")
-    test "Get name" (name == some (Value.string "Alice"))
+    name ≡ some (Value.string "Alice")
 
+test "Get age" := do
+  let db := Db.empty
+  let (e1, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add e1 (Attribute.mk ":person/name") (Value.string "Alice"),
+    .add e1 (Attribute.mk ":person/age") (Value.int 30)
+  ]
+  match db.transact tx with
+  | .error err => throw <| IO.userError s!"Transaction failed: {err}"
+  | .ok (db', _) =>
     let age := db'.getOne e1 (Attribute.mk ":person/age")
-    test "Get age" (age == some (Value.int 30))
+    age ≡ some (Value.int 30)
 
-    -- Original database unchanged
-    test "Original db unchanged" (db.size == 0)
+test "Original db unchanged" := do
+  let db := Db.empty
+  let (e1, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add e1 (Attribute.mk ":person/name") (Value.string "Alice")
+  ]
+  match db.transact tx with
+  | .error err => throw <| IO.userError s!"Transaction failed: {err}"
+  | .ok _ => db.size ≡ 0
 
-  IO.println ""
+/-! ## Multiple Transactions Tests -/
 
-/-- Test multiple transactions. -/
-def testMultipleTransactions : IO Unit := do
-  IO.println "Testing Multiple Transactions..."
-
+test "Second tx ID" := do
   let db := Db.empty
   let (e1, db) := db.allocEntityId
   let (e2, db) := db.allocEntityId
-
-  -- First transaction
-  let tx1 : Transaction := [
-    .add e1 (Attribute.mk ":person/name") (Value.string "Alice")
-  ]
-
+  let tx1 : Transaction := [.add e1 (Attribute.mk ":person/name") (Value.string "Alice")]
   let .ok (db, _) := db.transact tx1 | throw <| IO.userError "Tx1 failed"
-
-  -- Second transaction
   let tx2 : Transaction := [
     .add e2 (Attribute.mk ":person/name") (Value.string "Bob"),
     .add e1 (Attribute.mk ":person/friend") (Value.ref e2)
   ]
+  let .ok (_, report) := db.transact tx2 | throw <| IO.userError "Tx2 failed"
+  report.txId.id ≡ 2
 
-  let .ok (db, report) := db.transact tx2 | throw <| IO.userError "Tx2 failed"
+test "Database size after multiple tx" := do
+  let db := Db.empty
+  let (e1, db) := db.allocEntityId
+  let (e2, db) := db.allocEntityId
+  let tx1 : Transaction := [.add e1 (Attribute.mk ":person/name") (Value.string "Alice")]
+  let .ok (db, _) := db.transact tx1 | throw <| IO.userError "Tx1 failed"
+  let tx2 : Transaction := [
+    .add e2 (Attribute.mk ":person/name") (Value.string "Bob"),
+    .add e1 (Attribute.mk ":person/friend") (Value.ref e2)
+  ]
+  let .ok (db, _) := db.transact tx2 | throw <| IO.userError "Tx2 failed"
+  db.size ≡ 3
 
-  test "Second tx ID" (report.txId.id == 2)
-  test "Database size" (db.size == 3)  -- 1 from tx1 + 2 from tx2
-
-  -- Check reference
+test "Reference value" := do
+  let db := Db.empty
+  let (e1, db) := db.allocEntityId
+  let (e2, db) := db.allocEntityId
+  let tx1 : Transaction := [.add e1 (Attribute.mk ":person/name") (Value.string "Alice")]
+  let .ok (db, _) := db.transact tx1 | throw <| IO.userError "Tx1 failed"
+  let tx2 : Transaction := [
+    .add e2 (Attribute.mk ":person/name") (Value.string "Bob"),
+    .add e1 (Attribute.mk ":person/friend") (Value.ref e2)
+  ]
+  let .ok (db, _) := db.transact tx2 | throw <| IO.userError "Tx2 failed"
   let friend := db.getOne e1 (Attribute.mk ":person/friend")
-  test "Reference value" (friend == some (Value.ref e2))
+  friend ≡ some (Value.ref e2)
 
-  IO.println ""
+/-! ## Attribute Queries (AEVT) Tests -/
 
-/-- Test attribute-based queries (AEVT index). -/
-def testAttributeQueries : IO Unit := do
-  IO.println "Testing Attribute Queries (AEVT)..."
-
+test "Entities with name" := do
   let db := Db.empty
   let (alice, db) := db.allocEntityId
   let (bob, db) := db.allocEntityId
   let (charlie, db) := db.allocEntityId
-
   let tx : Transaction := [
     .add alice (Attribute.mk ":person/name") (Value.string "Alice"),
     .add alice (Attribute.mk ":person/age") (Value.int 30),
     .add bob (Attribute.mk ":person/name") (Value.string "Bob"),
     .add bob (Attribute.mk ":person/age") (Value.int 25),
     .add charlie (Attribute.mk ":person/name") (Value.string "Charlie")
-    -- Note: charlie has no age
   ]
-
   let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
-
-  -- Query all entities with :person/name
   let withName := db.entitiesWithAttr (Attribute.mk ":person/name")
-  test "Entities with name" (withName.length == 3)
+  withName.length ≡ 3
 
-  -- Query all entities with :person/age
-  let withAge := db.entitiesWithAttr (Attribute.mk ":person/age")
-  test "Entities with age" (withAge.length == 2)
-
-  -- Query all datoms with :person/name
-  let nameDatoms := db.datomsWithAttr (Attribute.mk ":person/name")
-  test "Name datoms count" (nameDatoms.length == 3)
-
-  IO.println ""
-
-/-- Test value-based queries (AVET index). -/
-def testValueQueries : IO Unit := do
-  IO.println "Testing Value Queries (AVET)..."
-
+test "Entities with age" := do
   let db := Db.empty
   let (alice, db) := db.allocEntityId
   let (bob, db) := db.allocEntityId
   let (charlie, db) := db.allocEntityId
-
   let tx : Transaction := [
-    .add alice (Attribute.mk ":person/email") (Value.string "alice@example.com"),
-    .add bob (Attribute.mk ":person/email") (Value.string "bob@example.com"),
-    .add charlie (Attribute.mk ":person/age") (Value.int 30),
-    .add alice (Attribute.mk ":person/age") (Value.int 30)
+    .add alice (Attribute.mk ":person/name") (Value.string "Alice"),
+    .add alice (Attribute.mk ":person/age") (Value.int 30),
+    .add bob (Attribute.mk ":person/name") (Value.string "Bob"),
+    .add bob (Attribute.mk ":person/age") (Value.int 25),
+    .add charlie (Attribute.mk ":person/name") (Value.string "Charlie")
   ]
-
   let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
+  let withAge := db.entitiesWithAttr (Attribute.mk ":person/age")
+  withAge.length ≡ 2
 
-  -- Find entity by unique email
-  let aliceByEmail := db.findOneByAttrValue
-    (Attribute.mk ":person/email") (Value.string "alice@example.com")
-  test "Find by email" (aliceByEmail == some alice)
-
-  -- Find entities with age 30
-  let age30 := db.findByAttrValue (Attribute.mk ":person/age") (Value.int 30)
-  test "Find by age 30" (age30.length == 2)
-
-  -- Find by non-existent value
-  let notFound := db.findOneByAttrValue
-    (Attribute.mk ":person/email") (Value.string "nobody@example.com")
-  test "Not found returns none" (notFound.isNone)
-
-  IO.println ""
-
-/-- Test reverse reference queries (VAET index). -/
-def testReverseRefs : IO Unit := do
-  IO.println "Testing Reverse References (VAET)..."
-
+test "Name datoms count" := do
   let db := Db.empty
   let (alice, db) := db.allocEntityId
   let (bob, db) := db.allocEntityId
   let (charlie, db) := db.allocEntityId
-  let (project, db) := db.allocEntityId
-
   let tx : Transaction := [
     .add alice (Attribute.mk ":person/name") (Value.string "Alice"),
     .add bob (Attribute.mk ":person/name") (Value.string "Bob"),
-    .add charlie (Attribute.mk ":person/name") (Value.string "Charlie"),
-    .add project (Attribute.mk ":project/name") (Value.string "Ledger"),
-    -- Alice and Bob work on the project
+    .add charlie (Attribute.mk ":person/name") (Value.string "Charlie")
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
+  let nameDatoms := db.datomsWithAttr (Attribute.mk ":person/name")
+  nameDatoms.length ≡ 3
+
+/-! ## Value Queries (AVET) Tests -/
+
+test "Find by email" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let (bob, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add alice (Attribute.mk ":person/email") (Value.string "alice@example.com"),
+    .add bob (Attribute.mk ":person/email") (Value.string "bob@example.com")
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
+  let aliceByEmail := db.findOneByAttrValue
+    (Attribute.mk ":person/email") (Value.string "alice@example.com")
+  aliceByEmail ≡ some alice
+
+test "Find by age 30" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let (charlie, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add charlie (Attribute.mk ":person/age") (Value.int 30),
+    .add alice (Attribute.mk ":person/age") (Value.int 30)
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
+  let age30 := db.findByAttrValue (Attribute.mk ":person/age") (Value.int 30)
+  age30.length ≡ 2
+
+test "Not found returns none" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add alice (Attribute.mk ":person/email") (Value.string "alice@example.com")
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
+  let notFound := db.findOneByAttrValue
+    (Attribute.mk ":person/email") (Value.string "nobody@example.com")
+  ensure notFound.isNone "Non-existent email should return none"
+
+/-! ## Reverse References (VAET) Tests -/
+
+test "Project refs count" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let (bob, db) := db.allocEntityId
+  let (project, db) := db.allocEntityId
+  let tx : Transaction := [
     .add alice (Attribute.mk ":person/works-on") (Value.ref project),
-    .add bob (Attribute.mk ":person/works-on") (Value.ref project),
-    -- Alice is friends with Bob
+    .add bob (Attribute.mk ":person/works-on") (Value.ref project)
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
+  let projectRefs := db.referencingEntities project
+  projectRefs.length ≡ 2
+
+test "Project refs contains alice" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let (bob, db) := db.allocEntityId
+  let (project, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add alice (Attribute.mk ":person/works-on") (Value.ref project),
+    .add bob (Attribute.mk ":person/works-on") (Value.ref project)
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
+  let projectRefs := db.referencingEntities project
+  ensure (projectRefs.contains alice) "Project refs should contain alice"
+
+test "Bob refs count" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let (bob, db) := db.allocEntityId
+  let tx : Transaction := [
     .add alice (Attribute.mk ":person/friend") (Value.ref bob)
   ]
-
   let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
-
-  -- Who references the project?
-  let projectRefs := db.referencingEntities project
-  test "Project refs count" (projectRefs.length == 2)
-  test "Project refs contains alice" (projectRefs.contains alice)
-  test "Project refs contains bob" (projectRefs.contains bob)
-
-  -- Who references Bob?
   let bobRefs := db.referencingEntities bob
-  test "Bob refs count" (bobRefs.length == 1)
-  test "Bob refs contains alice" (bobRefs.contains alice)
+  bobRefs.length ≡ 1
 
-  -- Who works on the project (via specific attribute)?
+test "Workers count" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let (bob, db) := db.allocEntityId
+  let (project, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add alice (Attribute.mk ":person/works-on") (Value.ref project),
+    .add bob (Attribute.mk ":person/works-on") (Value.ref project)
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
   let workers := db.referencingViaAttr project (Attribute.mk ":person/works-on")
-  test "Workers count" (workers.length == 2)
+  workers.length ≡ 2
 
-  -- Who is friends with Bob?
-  let bobFriends := db.referencingViaAttr bob (Attribute.mk ":person/friend")
-  test "Bob friends count" (bobFriends.length == 1)
-
-  -- Charlie has no incoming references
+test "Charlie has no refs" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let (charlie, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add alice (Attribute.mk ":person/name") (Value.string "Alice")
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
   let charlieRefs := db.referencingEntities charlie
-  test "Charlie has no refs" (charlieRefs.isEmpty)
+  ensure charlieRefs.isEmpty "Charlie should have no refs"
 
-  IO.println ""
+/-! ## Time Travel Tests -/
 
-/-- Test time-travel with Connection. -/
-def testTimeTravel : IO Unit := do
-  IO.println "Testing Time Travel..."
-
+test "Current age is 27" := do
   let conn := Connection.create
   let (alice, conn) := conn.allocEntityId
+  let tx1 : Transaction := [
+    .add alice (Attribute.mk ":person/name") (Value.string "Alice"),
+    .add alice (Attribute.mk ":person/age") (Value.int 25)
+  ]
+  let .ok (conn, _) := conn.transact tx1 | throw <| IO.userError "Tx1 failed"
+  let tx2 : Transaction := [
+    .retract alice (Attribute.mk ":person/age") (Value.int 25),
+    .add alice (Attribute.mk ":person/age") (Value.int 26)
+  ]
+  let .ok (conn, _) := conn.transact tx2 | throw <| IO.userError "Tx2 failed"
+  let tx3 : Transaction := [
+    .retract alice (Attribute.mk ":person/age") (Value.int 26),
+    .add alice (Attribute.mk ":person/age") (Value.int 27)
+  ]
+  let .ok (conn, _) := conn.transact tx3 | throw <| IO.userError "Tx3 failed"
+  let currentAge := conn.current.getOne alice (Attribute.mk ":person/age")
+  currentAge ≡ some (Value.int 27)
 
-  -- Transaction 1: Add Alice with age 25
+test "Age at tx1 is 25" := do
+  let conn := Connection.create
+  let (alice, conn) := conn.allocEntityId
   let tx1 : Transaction := [
     .add alice (Attribute.mk ":person/name") (Value.string "Alice"),
     .add alice (Attribute.mk ":person/age") (Value.int 25)
   ]
   let .ok (conn, report1) := conn.transact tx1 | throw <| IO.userError "Tx1 failed"
   let tx1Id := report1.txId
+  let tx2 : Transaction := [
+    .retract alice (Attribute.mk ":person/age") (Value.int 25),
+    .add alice (Attribute.mk ":person/age") (Value.int 26)
+  ]
+  let .ok (conn, _) := conn.transact tx2 | throw <| IO.userError "Tx2 failed"
+  let dbAtTx1 := conn.asOf tx1Id
+  let ageAtTx1 := dbAtTx1.getOne alice (Attribute.mk ":person/age")
+  ageAtTx1 ≡ some (Value.int 25)
 
-  -- Transaction 2: Update Alice's age to 26
+test "Age at tx2 is 26" := do
+  let conn := Connection.create
+  let (alice, conn) := conn.allocEntityId
+  let tx1 : Transaction := [
+    .add alice (Attribute.mk ":person/name") (Value.string "Alice"),
+    .add alice (Attribute.mk ":person/age") (Value.int 25)
+  ]
+  let .ok (conn, _) := conn.transact tx1 | throw <| IO.userError "Tx1 failed"
   let tx2 : Transaction := [
     .retract alice (Attribute.mk ":person/age") (Value.int 25),
     .add alice (Attribute.mk ":person/age") (Value.int 26)
   ]
   let .ok (conn, report2) := conn.transact tx2 | throw <| IO.userError "Tx2 failed"
   let tx2Id := report2.txId
+  let dbAtTx2 := conn.asOf tx2Id
+  let ageAtTx2 := dbAtTx2.getOne alice (Attribute.mk ":person/age")
+  ageAtTx2 ≡ some (Value.int 26)
 
-  -- Transaction 3: Update Alice's age to 27
+test "Changes since tx1" := do
+  let conn := Connection.create
+  let (alice, conn) := conn.allocEntityId
+  let tx1 : Transaction := [
+    .add alice (Attribute.mk ":person/name") (Value.string "Alice"),
+    .add alice (Attribute.mk ":person/age") (Value.int 25)
+  ]
+  let .ok (conn, report1) := conn.transact tx1 | throw <| IO.userError "Tx1 failed"
+  let tx1Id := report1.txId
+  let tx2 : Transaction := [
+    .retract alice (Attribute.mk ":person/age") (Value.int 25),
+    .add alice (Attribute.mk ":person/age") (Value.int 26)
+  ]
+  let .ok (conn, _) := conn.transact tx2 | throw <| IO.userError "Tx2 failed"
   let tx3 : Transaction := [
     .retract alice (Attribute.mk ":person/age") (Value.int 26),
     .add alice (Attribute.mk ":person/age") (Value.int 27)
   ]
   let .ok (conn, _) := conn.transact tx3 | throw <| IO.userError "Tx3 failed"
-
-  -- Current database should show age 27
-  let currentAge := conn.current.getOne alice (Attribute.mk ":person/age")
-  test "Current age is 27" (currentAge == some (Value.int 27))
-
-  -- asOf tx1 should show age 25
-  let dbAtTx1 := conn.asOf tx1Id
-  let ageAtTx1 := dbAtTx1.getOne alice (Attribute.mk ":person/age")
-  test "Age at tx1 is 25" (ageAtTx1 == some (Value.int 25))
-
-  -- asOf tx2 should show age 26
-  let dbAtTx2 := conn.asOf tx2Id
-  let ageAtTx2 := dbAtTx2.getOne alice (Attribute.mk ":person/age")
-  test "Age at tx2 is 26" (ageAtTx2 == some (Value.int 26))
-
-  -- since tx1 should include tx2 and tx3 datoms
   let changesSinceTx1 := conn.since tx1Id
-  test "Changes since tx1" (changesSinceTx1.length == 4)  -- 2 from tx2 + 2 from tx3
+  changesSinceTx1.length ≡ 4
 
-  -- History should show all changes
-  let history := conn.attrHistory alice (Attribute.mk ":person/age")
-  test "History has 5 entries" (history.length == 5)  -- add 25, retract 25, add 26, retract 26, add 27
-
-  IO.println ""
-
-/-- Test retractions. -/
-def testRetractions : IO Unit := do
-  IO.println "Testing Retractions..."
-
+test "History has 5 entries" := do
   let conn := Connection.create
   let (alice, conn) := conn.allocEntityId
+  let tx1 : Transaction := [
+    .add alice (Attribute.mk ":person/name") (Value.string "Alice"),
+    .add alice (Attribute.mk ":person/age") (Value.int 25)
+  ]
+  let .ok (conn, _) := conn.transact tx1 | throw <| IO.userError "Tx1 failed"
+  let tx2 : Transaction := [
+    .retract alice (Attribute.mk ":person/age") (Value.int 25),
+    .add alice (Attribute.mk ":person/age") (Value.int 26)
+  ]
+  let .ok (conn, _) := conn.transact tx2 | throw <| IO.userError "Tx2 failed"
+  let tx3 : Transaction := [
+    .retract alice (Attribute.mk ":person/age") (Value.int 26),
+    .add alice (Attribute.mk ":person/age") (Value.int 27)
+  ]
+  let .ok (conn, _) := conn.transact tx3 | throw <| IO.userError "Tx3 failed"
+  let history := conn.attrHistory alice (Attribute.mk ":person/age")
+  history.length ≡ 5
 
-  -- Add Alice
+/-! ## Retraction Tests -/
+
+test "Has name after add" := do
+  let conn := Connection.create
+  let (alice, conn) := conn.allocEntityId
   let tx1 : Transaction := [
     .add alice (Attribute.mk ":person/name") (Value.string "Alice"),
     .add alice (Attribute.mk ":person/email") (Value.string "alice@example.com")
   ]
   let .ok (conn, _) := conn.transact tx1 | throw <| IO.userError "Tx1 failed"
+  conn.current.getOne alice (Attribute.mk ":person/name") ≡ some (Value.string "Alice")
 
-  -- Verify both attributes exist
-  test "Has name" (conn.current.getOne alice (Attribute.mk ":person/name") == some (Value.string "Alice"))
-  test "Has email" (conn.current.getOne alice (Attribute.mk ":person/email") == some (Value.string "alice@example.com"))
+test "Has email after add" := do
+  let conn := Connection.create
+  let (alice, conn) := conn.allocEntityId
+  let tx1 : Transaction := [
+    .add alice (Attribute.mk ":person/name") (Value.string "Alice"),
+    .add alice (Attribute.mk ":person/email") (Value.string "alice@example.com")
+  ]
+  let .ok (conn, _) := conn.transact tx1 | throw <| IO.userError "Tx1 failed"
+  conn.current.getOne alice (Attribute.mk ":person/email") ≡ some (Value.string "alice@example.com")
 
-  -- Retract email
+test "Still has name after email retract" := do
+  let conn := Connection.create
+  let (alice, conn) := conn.allocEntityId
+  let tx1 : Transaction := [
+    .add alice (Attribute.mk ":person/name") (Value.string "Alice"),
+    .add alice (Attribute.mk ":person/email") (Value.string "alice@example.com")
+  ]
+  let .ok (conn, _) := conn.transact tx1 | throw <| IO.userError "Tx1 failed"
   let tx2 : Transaction := [
     .retract alice (Attribute.mk ":person/email") (Value.string "alice@example.com")
   ]
   let .ok (conn, _) := conn.transact tx2 | throw <| IO.userError "Tx2 failed"
+  conn.current.getOne alice (Attribute.mk ":person/name") ≡ some (Value.string "Alice")
 
-  -- Name should still exist, email should be gone
-  test "Still has name" (conn.current.getOne alice (Attribute.mk ":person/name") == some (Value.string "Alice"))
-
-  -- Email should be retracted (not visible in current view)
-  let email := conn.current.getOne alice (Attribute.mk ":person/email")
-  test "Email retracted" (email.isNone)
-
-  IO.println ""
-
-/-- Test entity history. -/
-def testEntityHistory : IO Unit := do
-  IO.println "Testing Entity History..."
-
+test "Email retracted" := do
   let conn := Connection.create
   let (alice, conn) := conn.allocEntityId
+  let tx1 : Transaction := [
+    .add alice (Attribute.mk ":person/name") (Value.string "Alice"),
+    .add alice (Attribute.mk ":person/email") (Value.string "alice@example.com")
+  ]
+  let .ok (conn, _) := conn.transact tx1 | throw <| IO.userError "Tx1 failed"
+  let tx2 : Transaction := [
+    .retract alice (Attribute.mk ":person/email") (Value.string "alice@example.com")
+  ]
+  let .ok (conn, _) := conn.transact tx2 | throw <| IO.userError "Tx2 failed"
+  let email := conn.current.getOne alice (Attribute.mk ":person/email")
+  ensure email.isNone "Email should be retracted"
 
-  -- Multiple updates over time
+/-! ## Entity History Tests -/
+
+test "Entity history count" := do
+  let conn := Connection.create
+  let (alice, conn) := conn.allocEntityId
   let tx1 : Transaction := [.add alice (Attribute.mk ":person/status") (Value.string "new")]
   let .ok (conn, _) := conn.transact tx1 | throw <| IO.userError "Tx1 failed"
-
   let tx2 : Transaction := [
     .retract alice (Attribute.mk ":person/status") (Value.string "new"),
     .add alice (Attribute.mk ":person/status") (Value.string "active")
   ]
   let .ok (conn, _) := conn.transact tx2 | throw <| IO.userError "Tx2 failed"
-
   let tx3 : Transaction := [
     .retract alice (Attribute.mk ":person/status") (Value.string "active"),
     .add alice (Attribute.mk ":person/status") (Value.string "inactive")
   ]
   let .ok (conn, _) := conn.transact tx3 | throw <| IO.userError "Tx3 failed"
-
-  -- Get full history
   let history := conn.entityHistory alice
-  test "Entity history count" (history.length == 5)  -- 1 + 2 + 2
+  history.length ≡ 5
 
-  -- Get attribute history
+test "Status history count" := do
+  let conn := Connection.create
+  let (alice, conn) := conn.allocEntityId
+  let tx1 : Transaction := [.add alice (Attribute.mk ":person/status") (Value.string "new")]
+  let .ok (conn, _) := conn.transact tx1 | throw <| IO.userError "Tx1 failed"
+  let tx2 : Transaction := [
+    .retract alice (Attribute.mk ":person/status") (Value.string "new"),
+    .add alice (Attribute.mk ":person/status") (Value.string "active")
+  ]
+  let .ok (conn, _) := conn.transact tx2 | throw <| IO.userError "Tx2 failed"
+  let tx3 : Transaction := [
+    .retract alice (Attribute.mk ":person/status") (Value.string "active"),
+    .add alice (Attribute.mk ":person/status") (Value.string "inactive")
+  ]
+  let .ok (conn, _) := conn.transact tx3 | throw <| IO.userError "Tx3 failed"
   let statusHistory := conn.attrHistory alice (Attribute.mk ":person/status")
-  test "Status history count" (statusHistory.length == 5)
+  statusHistory.length ≡ 5
 
-  -- Verify order (should be sorted by tx)
+test "History is sorted" := do
+  let conn := Connection.create
+  let (alice, conn) := conn.allocEntityId
+  let tx1 : Transaction := [.add alice (Attribute.mk ":person/status") (Value.string "new")]
+  let .ok (conn, _) := conn.transact tx1 | throw <| IO.userError "Tx1 failed"
+  let tx2 : Transaction := [
+    .retract alice (Attribute.mk ":person/status") (Value.string "new"),
+    .add alice (Attribute.mk ":person/status") (Value.string "active")
+  ]
+  let .ok (conn, _) := conn.transact tx2 | throw <| IO.userError "Tx2 failed"
+  let statusHistory := conn.attrHistory alice (Attribute.mk ":person/status")
   let txIds := statusHistory.map (·.tx.id)
   let sortedIds := (txIds.toArray.qsort (· < ·)).toList
-  let isSorted := txIds == sortedIds
-  test "History is sorted" isSorted
+  ensure (txIds == sortedIds) "History should be sorted by tx"
 
-  IO.println ""
+/-! ## Datalog Query Tests -/
 
-/-- Test Datalog queries. -/
-def testQueries : IO Unit := do
-  IO.println "Testing Datalog Queries..."
-
-  -- Set up a database with people and relationships
+test "Query: entities with name" := do
   let db := Db.empty
   let (alice, db) := db.allocEntityId
   let (bob, db) := db.allocEntityId
   let (charlie, db) := db.allocEntityId
-
   let tx : Transaction := [
     .add alice (Attribute.mk ":person/name") (Value.string "Alice"),
-    .add alice (Attribute.mk ":person/age") (Value.int 30),
     .add bob (Attribute.mk ":person/name") (Value.string "Bob"),
-    .add bob (Attribute.mk ":person/age") (Value.int 25),
-    .add charlie (Attribute.mk ":person/name") (Value.string "Charlie"),
-    .add charlie (Attribute.mk ":person/age") (Value.int 30),
-    .add alice (Attribute.mk ":person/friend") (Value.ref bob)
+    .add charlie (Attribute.mk ":person/name") (Value.string "Charlie")
   ]
-
   let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
-
-  -- Test 1: Simple pattern - find all entities with :person/name
   let pattern1 : Pattern := {
     entity := .var ⟨"e"⟩
     attr := .attr (Attribute.mk ":person/name")
     value := .var ⟨"name"⟩
   }
   let result1 := Query.findEntities pattern1 db
-  test "Query: entities with name" (result1.length == 3)
+  result1.length ≡ 3
 
-  -- Test 2: Pattern with constant value - find entities with age 30
+test "Query: entities with age 30" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let (bob, db) := db.allocEntityId
+  let (charlie, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add alice (Attribute.mk ":person/age") (Value.int 30),
+    .add bob (Attribute.mk ":person/age") (Value.int 25),
+    .add charlie (Attribute.mk ":person/age") (Value.int 30)
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
   let pattern2 : Pattern := {
     entity := .var ⟨"e"⟩
     attr := .attr (Attribute.mk ":person/age")
     value := .value (Value.int 30)
   }
   let result2 := Query.findEntities pattern2 db
-  test "Query: entities with age 30" (result2.length == 2)
-  test "Query: alice has age 30" (result2.contains alice)
-  test "Query: charlie has age 30" (result2.contains charlie)
+  result2.length ≡ 2
 
-  -- Test 3: Full query with multiple patterns - find name of people aged 30
+test "Query: multi-pattern result count" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let (bob, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add alice (Attribute.mk ":person/name") (Value.string "Alice"),
+    .add alice (Attribute.mk ":person/age") (Value.int 30),
+    .add bob (Attribute.mk ":person/name") (Value.string "Bob"),
+    .add bob (Attribute.mk ":person/age") (Value.int 25)
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
   let query3 : Query := {
     find := [⟨"name"⟩]
     where_ := [
@@ -440,207 +632,313 @@ def testQueries : IO Unit := do
     ]
   }
   let result3 := Query.execute query3 db
-  test "Query: multi-pattern result count" (result3.size == 2)
+  result3.size ≡ 1
 
-  -- Test 4: Query with entity reference
+test "Query: entities with friends" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let (bob, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add alice (Attribute.mk ":person/friend") (Value.ref bob)
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
   let pattern4 : Pattern := {
     entity := .var ⟨"e"⟩
     attr := .attr (Attribute.mk ":person/friend")
     value := .var ⟨"friend"⟩
   }
   let result4 := Query.findEntities pattern4 db
-  test "Query: entities with friends" (result4.length == 1)
-  test "Query: alice has friend" (result4.contains alice)
+  result4.length ≡ 1
 
-  -- Test 5: Query with bound entity
+test "Query: alice's name binding" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add alice (Attribute.mk ":person/name") (Value.string "Alice")
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
   let pattern5 : Pattern := {
     entity := .entity alice
     attr := .attr (Attribute.mk ":person/name")
     value := .var ⟨"name"⟩
   }
   let result5 := Query.executePattern pattern5 Binding.empty db.indexes
-  test "Query: alice's name binding" (result5.size == 1)
+  result5.size ≡ 1
 
-  IO.println ""
+/-! ## Pull API Tests -/
 
-/-- Test Pull API. -/
-def testPullAPI : IO Unit := do
-  IO.println "Testing Pull API..."
+test "Pull: single attribute" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add alice (Attribute.mk ":person/name") (Value.string "Alice")
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
+  let result1 := Pull.pullOne db alice ":person/name"
+  result1 ≡ some (Value.string "Alice")
 
-  -- Set up a database with people and relationships
+test "Pull: multiple attrs size" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add alice (Attribute.mk ":person/name") (Value.string "Alice"),
+    .add alice (Attribute.mk ":person/age") (Value.int 30)
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
+  let result2 := Pull.pullAttrs db alice [":person/name", ":person/age"]
+  result2.size ≡ 2
+
+test "Pull: wildcard has name" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add alice (Attribute.mk ":person/name") (Value.string "Alice"),
+    .add alice (Attribute.mk ":person/age") (Value.int 30)
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
+  let result3 := Pull.pull db alice [.wildcard]
+  ensure (result3.get? (Attribute.mk ":person/name")).isSome "Should have name"
+
+test "Pull: nested has friend" := do
   let db := Db.empty
   let (alice, db) := db.allocEntityId
   let (bob, db) := db.allocEntityId
-  let (charlie, db) := db.allocEntityId
-  let (project, db) := db.allocEntityId
-
   let tx : Transaction := [
     .add alice (Attribute.mk ":person/name") (Value.string "Alice"),
-    .add alice (Attribute.mk ":person/age") (Value.int 30),
-    .add alice (Attribute.mk ":person/email") (Value.string "alice@example.com"),
     .add bob (Attribute.mk ":person/name") (Value.string "Bob"),
-    .add bob (Attribute.mk ":person/age") (Value.int 25),
-    .add charlie (Attribute.mk ":person/name") (Value.string "Charlie"),
-    .add charlie (Attribute.mk ":person/age") (Value.int 35),
-    -- Alice is friends with Bob
-    .add alice (Attribute.mk ":person/friend") (Value.ref bob),
-    -- Project with team members
-    .add project (Attribute.mk ":project/name") (Value.string "Ledger"),
-    .add alice (Attribute.mk ":person/works-on") (Value.ref project),
-    .add bob (Attribute.mk ":person/works-on") (Value.ref project)
+    .add alice (Attribute.mk ":person/friend") (Value.ref bob)
   ]
-
   let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
-
-  -- Test 1: Pull single attribute
-  let result1 := Pull.pullOne db alice ":person/name"
-  test "Pull: single attribute" (result1 == some (Value.string "Alice"))
-
-  -- Test 2: Pull multiple attributes
-  let result2 := Pull.pullAttrs db alice [":person/name", ":person/age"]
-  test "Pull: multiple attrs size" (result2.size == 2)
-
-  -- Test 3: Pull with wildcard (all attributes)
-  let result3 := Pull.pull db alice [.wildcard]
-  test "Pull: wildcard has name" (result3.get? (Attribute.mk ":person/name")).isSome
-  test "Pull: wildcard has age" (result3.get? (Attribute.mk ":person/age")).isSome
-  test "Pull: wildcard has email" (result3.get? (Attribute.mk ":person/email")).isSome
-
-  -- Test 4: Pull with nested entity
   let result4 := Pull.pull db alice [
     .attr (Attribute.mk ":person/name"),
     .nested (Attribute.mk ":person/friend") [
       .attr (Attribute.mk ":person/name")
     ]
   ]
-  test "Pull: nested has friend" (result4.get? (Attribute.mk ":person/friend")).isSome
-  -- Check the nested value is an entity
+  ensure (result4.get? (Attribute.mk ":person/friend")).isSome "Should have friend"
+
+test "Pull: nested friend name" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let (bob, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add alice (Attribute.mk ":person/name") (Value.string "Alice"),
+    .add bob (Attribute.mk ":person/name") (Value.string "Bob"),
+    .add alice (Attribute.mk ":person/friend") (Value.ref bob)
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
+  let result4 := Pull.pull db alice [
+    .attr (Attribute.mk ":person/name"),
+    .nested (Attribute.mk ":person/friend") [
+      .attr (Attribute.mk ":person/name")
+    ]
+  ]
   match result4.get? (Attribute.mk ":person/friend") with
   | some (.entity data) =>
     let friendName := data.find? fun (a, _) => a == Attribute.mk ":person/name"
     match friendName with
-    | some (_, .scalar (.string name)) =>
-      test "Pull: nested friend name" (name == "Bob")
-    | _ => test "Pull: nested friend name" false
-  | _ => test "Pull: nested is entity" false
+    | some (_, .scalar (.string name)) => name ≡ "Bob"
+    | _ => throw <| IO.userError "Expected friend name"
+  | _ => throw <| IO.userError "Expected entity"
 
-  -- Test 5: Pull with reverse reference
+test "Pull: reverse worker count" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let (bob, db) := db.allocEntityId
+  let (project, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add project (Attribute.mk ":project/name") (Value.string "Ledger"),
+    .add alice (Attribute.mk ":person/works-on") (Value.ref project),
+    .add bob (Attribute.mk ":person/works-on") (Value.ref project)
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
   let result5 := Pull.pull db project [
     .attr (Attribute.mk ":project/name"),
     .reverse (Attribute.mk ":person/works-on") [
       .attr (Attribute.mk ":person/name")
     ]
   ]
-  test "Pull: reverse has workers" (result5.get? (Attribute.mk ":person/works-on")).isSome
-  -- Check that we got multiple workers
   match result5.get? (Attribute.mk ":person/works-on") with
-  | some (.many workers) =>
-    test "Pull: reverse worker count" (workers.length == 2)
-  | _ => test "Pull: reverse is many" false
+  | some (.many workers) => workers.length ≡ 2
+  | _ => throw <| IO.userError "Expected many workers"
 
-  -- Test 6: Pull with default value
+test "Pull: default value" := do
+  let db := Db.empty
+  let (charlie, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add charlie (Attribute.mk ":person/name") (Value.string "Charlie")
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
   let result6 := Pull.pull db charlie [
     .attr (Attribute.mk ":person/name"),
     .withDefault (Attribute.mk ":person/email") "no-email@example.com"
   ]
   match result6.get? (Attribute.mk ":person/email") with
-  | some (.scalar (.string email)) =>
-    test "Pull: default value" (email == "no-email@example.com")
-  | _ => test "Pull: default is string" false
+  | some (.scalar (.string email)) => email ≡ "no-email@example.com"
+  | _ => throw <| IO.userError "Expected default email"
 
-  -- Test 7: Pull many entities
-  let results7 := Pull.pullMany db [alice, bob, charlie] [.attr (Attribute.mk ":person/name")]
-  test "Pull: many entities count" (results7.length == 3)
-
-  IO.println ""
-
-/-- Test DSL builders. -/
-def testDSL : IO Unit := do
-  IO.println "Testing DSL Builders..."
-
-  -- Test Transaction Builder
+test "Pull: many entities count" := do
   let db := Db.empty
   let (alice, db) := db.allocEntityId
   let (bob, db) := db.allocEntityId
+  let (charlie, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add alice (Attribute.mk ":person/name") (Value.string "Alice"),
+    .add bob (Attribute.mk ":person/name") (Value.string "Bob"),
+    .add charlie (Attribute.mk ":person/name") (Value.string "Charlie")
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
+  let results7 := Pull.pullMany db [alice, bob, charlie] [.attr (Attribute.mk ":person/name")]
+  results7.length ≡ 3
 
-  -- Build a transaction using the fluent API
+/-! ## DSL Tests -/
+
+test "DSL: TxBuilder name" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let (bob, db) := db.allocEntityId
   let txb := DSL.tx
     |>.addStr alice ":person/name" "Alice"
     |>.addInt alice ":person/age" 30
     |>.addStr bob ":person/name" "Bob"
     |>.addRef alice ":person/friend" bob
-
   let .ok (db, _) := txb.run db | throw <| IO.userError "TxBuilder failed"
+  DSL.attrStr db alice ":person/name" ≡ some "Alice"
 
-  test "DSL: TxBuilder name" (DSL.attrStr db alice ":person/name" == some "Alice")
-  test "DSL: TxBuilder age" (DSL.attrInt db alice ":person/age" == some 30)
-  test "DSL: TxBuilder ref" (DSL.attrRef db alice ":person/friend" == some bob)
+test "DSL: TxBuilder age" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let txb := DSL.tx
+    |>.addStr alice ":person/name" "Alice"
+    |>.addInt alice ":person/age" 30
+  let .ok (db, _) := txb.run db | throw <| IO.userError "TxBuilder failed"
+  DSL.attrInt db alice ":person/age" ≡ some 30
 
-  -- Test Query Builder
+test "DSL: TxBuilder ref" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let (bob, db) := db.allocEntityId
+  let txb := DSL.tx
+    |>.addStr alice ":person/name" "Alice"
+    |>.addStr bob ":person/name" "Bob"
+    |>.addRef alice ":person/friend" bob
+  let .ok (db, _) := txb.run db | throw <| IO.userError "TxBuilder failed"
+  DSL.attrRef db alice ":person/friend" ≡ some bob
+
+test "DSL: QueryBuilder result" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let txb := DSL.tx
+    |>.addStr alice ":person/name" "Alice"
+    |>.addInt alice ":person/age" 30
+  let .ok (db, _) := txb.run db | throw <| IO.userError "TxBuilder failed"
   let qb := DSL.query
     |>.find "name"
     |>.where_ "e" ":person/name" "name"
     |>.whereInt "e" ":person/age" 30
-
   let result := qb.run db
-  test "DSL: QueryBuilder result" (result.size == 1)
+  result.size ≡ 1
 
-  -- Test Pull Builder
+test "DSL: PullBuilder has name" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let (bob, db) := db.allocEntityId
+  let txb := DSL.tx
+    |>.addStr alice ":person/name" "Alice"
+    |>.addInt alice ":person/age" 30
+    |>.addRef alice ":person/friend" bob
+  let .ok (db, _) := txb.run db | throw <| IO.userError "TxBuilder failed"
   let pb := DSL.pull
     |>.attr ":person/name"
     |>.attr ":person/age"
-    |>.nested ":person/friend" [":person/name"]
-
   let pullResult := pb.run db alice
-  test "DSL: PullBuilder has name" (pullResult.get? (Attribute.mk ":person/name")).isSome
-  test "DSL: PullBuilder has age" (pullResult.get? (Attribute.mk ":person/age")).isSome
-  test "DSL: PullBuilder has friend" (pullResult.get? (Attribute.mk ":person/friend")).isSome
+  ensure (pullResult.get? (Attribute.mk ":person/name")).isSome "Should have name"
 
-  -- Test Combinators
-  test "DSL: findByStr" ((DSL.findByStr db ":person/name" "Alice").length == 1)
-  test "DSL: findOneByStr" (DSL.findOneByStr db ":person/name" "Alice" == some alice)
-  test "DSL: follow" (DSL.follow db alice ":person/friend" == some bob)
+test "DSL: findByStr" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let txb := DSL.tx
+    |>.addStr alice ":person/name" "Alice"
+  let .ok (db, _) := txb.run db | throw <| IO.userError "TxBuilder failed"
+  (DSL.findByStr db ":person/name" "Alice").length ≡ 1
 
-  -- Test followAndGet
+test "DSL: findOneByStr" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let txb := DSL.tx
+    |>.addStr alice ":person/name" "Alice"
+  let .ok (db, _) := txb.run db | throw <| IO.userError "TxBuilder failed"
+  DSL.findOneByStr db ":person/name" "Alice" ≡ some alice
+
+test "DSL: follow" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let (bob, db) := db.allocEntityId
+  let txb := DSL.tx
+    |>.addStr alice ":person/name" "Alice"
+    |>.addStr bob ":person/name" "Bob"
+    |>.addRef alice ":person/friend" bob
+  let .ok (db, _) := txb.run db | throw <| IO.userError "TxBuilder failed"
+  DSL.follow db alice ":person/friend" ≡ some bob
+
+test "DSL: followAndGet" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let (bob, db) := db.allocEntityId
+  let txb := DSL.tx
+    |>.addStr alice ":person/name" "Alice"
+    |>.addStr bob ":person/name" "Bob"
+    |>.addRef alice ":person/friend" bob
+  let .ok (db, _) := txb.run db | throw <| IO.userError "TxBuilder failed"
   let friendName := DSL.followAndGet db alice ":person/friend" ":person/name"
-  test "DSL: followAndGet" (friendName == some (Value.string "Bob"))
+  friendName ≡ some (Value.string "Bob")
 
-  -- Test allWith
+test "DSL: allWith" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let (bob, db) := db.allocEntityId
+  let txb := DSL.tx
+    |>.addStr alice ":person/name" "Alice"
+    |>.addStr bob ":person/name" "Bob"
+  let .ok (db, _) := txb.run db | throw <| IO.userError "TxBuilder failed"
   let withName := DSL.allWith db ":person/name"
-  test "DSL: allWith" (withName.length == 2)
+  withName.length ≡ 2
 
-  -- Test entity builder
+test "DSL: EntityBuilder email" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
   let eb := DSL.tx
     |>.entity alice
     |>.str ":person/email" "alice@example.com"
     |>.int ":person/score" 100
-
   let .ok (db, _) := eb.done.run db | throw <| IO.userError "EntityBuilder failed"
-  test "DSL: EntityBuilder email" (DSL.attrStr db alice ":person/email" == some "alice@example.com")
-  test "DSL: EntityBuilder score" (DSL.attrInt db alice ":person/score" == some 100)
+  DSL.attrStr db alice ":person/email" ≡ some "alice@example.com"
 
-  IO.println ""
+test "DSL: EntityBuilder score" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let eb := DSL.tx
+    |>.entity alice
+    |>.str ":person/email" "alice@example.com"
+    |>.int ":person/score" 100
+  let .ok (db, _) := eb.done.run db | throw <| IO.userError "EntityBuilder failed"
+  DSL.attrInt db alice ":person/score" ≡ some 100
 
-/-- Main test runner. -/
+#generate_tests
+
+end Ledger.Tests
+
 def main : IO Unit := do
   IO.println "╔══════════════════════════════════════╗"
   IO.println "║     Ledger Database Tests            ║"
   IO.println "╚══════════════════════════════════════╝"
   IO.println ""
 
-  testCoreTypes
-  testDatoms
-  testDatabase
-  testMultipleTransactions
-  testAttributeQueries
-  testValueQueries
-  testReverseRefs
-  testTimeTravel
-  testRetractions
-  testEntityHistory
-  testQueries
-  testPullAPI
-  testDSL
+  let exitCode ← Crucible.runTests "Ledger Tests" Ledger.Tests.cases
 
-  IO.println "════════════════════════════════════════"
-  IO.println "All tests passed!"
+  IO.println ""
+  if exitCode == 0 then
+    IO.println "All tests passed!"
+  else
+    IO.println "Some tests failed"
+    IO.Process.exit 1
