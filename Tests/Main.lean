@@ -934,7 +934,7 @@ def main : IO Unit := do
   IO.println "╚══════════════════════════════════════╝"
   IO.println ""
 
-  let exitCode ← Crucible.runTests "Ledger Tests" Ledger.Tests.cases
+  let exitCode ← runAllSuites
 
   IO.println ""
   if exitCode == 0 then
