@@ -296,6 +296,180 @@ test "Not found returns none" := do
     (Attribute.mk ":person/email") (Value.string "nobody@example.com")
   ensure notFound.isNone "Non-existent email should return none"
 
+/-! ## Retraction Filtering in Value Queries (AVET) Tests -/
+
+test "findByAttrValue excludes retracted entity" := do
+  let conn := Connection.create
+  let (alice, conn) := conn.allocEntityId
+  let (bob, conn) := conn.allocEntityId
+  -- Add both entities with same tag
+  let tx1 : Transaction := [
+    .add alice (Attribute.mk ":person/tag") (Value.string "active"),
+    .add bob (Attribute.mk ":person/tag") (Value.string "active")
+  ]
+  let .ok (conn, _) := conn.transact tx1 | throw <| IO.userError "Tx1 failed"
+  -- Retract Alice's tag
+  let tx2 : Transaction := [
+    .retract alice (Attribute.mk ":person/tag") (Value.string "active")
+  ]
+  let .ok (conn, _) := conn.transact tx2 | throw <| IO.userError "Tx2 failed"
+  -- Should only find Bob
+  let active := conn.db.findByAttrValue (Attribute.mk ":person/tag") (Value.string "active")
+  active.length ≡ 1
+
+test "findByAttrValue excludes retracted entity - contains check" := do
+  let conn := Connection.create
+  let (alice, conn) := conn.allocEntityId
+  let (bob, conn) := conn.allocEntityId
+  let tx1 : Transaction := [
+    .add alice (Attribute.mk ":person/tag") (Value.string "active"),
+    .add bob (Attribute.mk ":person/tag") (Value.string "active")
+  ]
+  let .ok (conn, _) := conn.transact tx1 | throw <| IO.userError "Tx1 failed"
+  let tx2 : Transaction := [
+    .retract alice (Attribute.mk ":person/tag") (Value.string "active")
+  ]
+  let .ok (conn, _) := conn.transact tx2 | throw <| IO.userError "Tx2 failed"
+  let active := conn.db.findByAttrValue (Attribute.mk ":person/tag") (Value.string "active")
+  ensure (active.contains bob) "Should contain bob"
+
+test "findByAttrValue excludes retracted entity - alice not present" := do
+  let conn := Connection.create
+  let (alice, conn) := conn.allocEntityId
+  let (bob, conn) := conn.allocEntityId
+  let tx1 : Transaction := [
+    .add alice (Attribute.mk ":person/tag") (Value.string "active"),
+    .add bob (Attribute.mk ":person/tag") (Value.string "active")
+  ]
+  let .ok (conn, _) := conn.transact tx1 | throw <| IO.userError "Tx1 failed"
+  let tx2 : Transaction := [
+    .retract alice (Attribute.mk ":person/tag") (Value.string "active")
+  ]
+  let .ok (conn, _) := conn.transact tx2 | throw <| IO.userError "Tx2 failed"
+  let active := conn.db.findByAttrValue (Attribute.mk ":person/tag") (Value.string "active")
+  ensure (!active.contains alice) "Should not contain retracted alice"
+
+test "findOneByAttrValue returns none for retracted" := do
+  let conn := Connection.create
+  let (alice, conn) := conn.allocEntityId
+  let tx1 : Transaction := [
+    .add alice (Attribute.mk ":person/email") (Value.string "alice@example.com")
+  ]
+  let .ok (conn, _) := conn.transact tx1 | throw <| IO.userError "Tx1 failed"
+  let tx2 : Transaction := [
+    .retract alice (Attribute.mk ":person/email") (Value.string "alice@example.com")
+  ]
+  let .ok (conn, _) := conn.transact tx2 | throw <| IO.userError "Tx2 failed"
+  let found := conn.db.findOneByAttrValue
+    (Attribute.mk ":person/email") (Value.string "alice@example.com")
+  ensure found.isNone "Retracted email should not be found"
+
+test "Re-assertion after retraction is visible" := do
+  let conn := Connection.create
+  let (alice, conn) := conn.allocEntityId
+  -- Add tag
+  let tx1 : Transaction := [
+    .add alice (Attribute.mk ":person/tag") (Value.string "active")
+  ]
+  let .ok (conn, _) := conn.transact tx1 | throw <| IO.userError "Tx1 failed"
+  -- Retract tag
+  let tx2 : Transaction := [
+    .retract alice (Attribute.mk ":person/tag") (Value.string "active")
+  ]
+  let .ok (conn, _) := conn.transact tx2 | throw <| IO.userError "Tx2 failed"
+  -- Re-add tag
+  let tx3 : Transaction := [
+    .add alice (Attribute.mk ":person/tag") (Value.string "active")
+  ]
+  let .ok (conn, _) := conn.transact tx3 | throw <| IO.userError "Tx3 failed"
+  -- Should find Alice again
+  let active := conn.db.findByAttrValue (Attribute.mk ":person/tag") (Value.string "active")
+  active.length ≡ 1
+
+test "Re-assertion after retraction contains entity" := do
+  let conn := Connection.create
+  let (alice, conn) := conn.allocEntityId
+  let tx1 : Transaction := [
+    .add alice (Attribute.mk ":person/tag") (Value.string "active")
+  ]
+  let .ok (conn, _) := conn.transact tx1 | throw <| IO.userError "Tx1 failed"
+  let tx2 : Transaction := [
+    .retract alice (Attribute.mk ":person/tag") (Value.string "active")
+  ]
+  let .ok (conn, _) := conn.transact tx2 | throw <| IO.userError "Tx2 failed"
+  let tx3 : Transaction := [
+    .add alice (Attribute.mk ":person/tag") (Value.string "active")
+  ]
+  let .ok (conn, _) := conn.transact tx3 | throw <| IO.userError "Tx3 failed"
+  let active := conn.db.findByAttrValue (Attribute.mk ":person/tag") (Value.string "active")
+  ensure (active.contains alice) "Re-asserted alice should be found"
+
+test "Multiple entities with mixed retractions" := do
+  let conn := Connection.create
+  let (e1, conn) := conn.allocEntityId
+  let (e2, conn) := conn.allocEntityId
+  let (e3, conn) := conn.allocEntityId
+  let (e4, conn) := conn.allocEntityId
+  -- Add all with same owner
+  let tx1 : Transaction := [
+    .add e1 (Attribute.mk ":todo/owner") (Value.ref ⟨100⟩),
+    .add e2 (Attribute.mk ":todo/owner") (Value.ref ⟨100⟩),
+    .add e3 (Attribute.mk ":todo/owner") (Value.ref ⟨100⟩),
+    .add e4 (Attribute.mk ":todo/owner") (Value.ref ⟨100⟩)
+  ]
+  let .ok (conn, _) := conn.transact tx1 | throw <| IO.userError "Tx1 failed"
+  -- Retract e2 and e4
+  let tx2 : Transaction := [
+    .retract e2 (Attribute.mk ":todo/owner") (Value.ref ⟨100⟩),
+    .retract e4 (Attribute.mk ":todo/owner") (Value.ref ⟨100⟩)
+  ]
+  let .ok (conn, _) := conn.transact tx2 | throw <| IO.userError "Tx2 failed"
+  -- Should find only e1 and e3
+  let owned := conn.db.findByAttrValue (Attribute.mk ":todo/owner") (Value.ref ⟨100⟩)
+  owned.length ≡ 2
+
+test "Multiple entities with mixed retractions - correct entities" := do
+  let conn := Connection.create
+  let (e1, conn) := conn.allocEntityId
+  let (e2, conn) := conn.allocEntityId
+  let (e3, conn) := conn.allocEntityId
+  let (e4, conn) := conn.allocEntityId
+  let tx1 : Transaction := [
+    .add e1 (Attribute.mk ":todo/owner") (Value.ref ⟨100⟩),
+    .add e2 (Attribute.mk ":todo/owner") (Value.ref ⟨100⟩),
+    .add e3 (Attribute.mk ":todo/owner") (Value.ref ⟨100⟩),
+    .add e4 (Attribute.mk ":todo/owner") (Value.ref ⟨100⟩)
+  ]
+  let .ok (conn, _) := conn.transact tx1 | throw <| IO.userError "Tx1 failed"
+  let tx2 : Transaction := [
+    .retract e2 (Attribute.mk ":todo/owner") (Value.ref ⟨100⟩),
+    .retract e4 (Attribute.mk ":todo/owner") (Value.ref ⟨100⟩)
+  ]
+  let .ok (conn, _) := conn.transact tx2 | throw <| IO.userError "Tx2 failed"
+  let owned := conn.db.findByAttrValue (Attribute.mk ":todo/owner") (Value.ref ⟨100⟩)
+  ensure (owned.contains e1 && owned.contains e3) "Should contain e1 and e3"
+
+test "Multiple entities with mixed retractions - excluded entities" := do
+  let conn := Connection.create
+  let (e1, conn) := conn.allocEntityId
+  let (e2, conn) := conn.allocEntityId
+  let (e3, conn) := conn.allocEntityId
+  let (e4, conn) := conn.allocEntityId
+  let tx1 : Transaction := [
+    .add e1 (Attribute.mk ":todo/owner") (Value.ref ⟨100⟩),
+    .add e2 (Attribute.mk ":todo/owner") (Value.ref ⟨100⟩),
+    .add e3 (Attribute.mk ":todo/owner") (Value.ref ⟨100⟩),
+    .add e4 (Attribute.mk ":todo/owner") (Value.ref ⟨100⟩)
+  ]
+  let .ok (conn, _) := conn.transact tx1 | throw <| IO.userError "Tx1 failed"
+  let tx2 : Transaction := [
+    .retract e2 (Attribute.mk ":todo/owner") (Value.ref ⟨100⟩),
+    .retract e4 (Attribute.mk ":todo/owner") (Value.ref ⟨100⟩)
+  ]
+  let .ok (conn, _) := conn.transact tx2 | throw <| IO.userError "Tx2 failed"
+  let owned := conn.db.findByAttrValue (Attribute.mk ":todo/owner") (Value.ref ⟨100⟩)
+  ensure (!owned.contains e2 && !owned.contains e4) "Should not contain e2 and e4"
+
 /-! ## Reverse References (VAET) Tests -/
 
 test "Project refs count" := do
