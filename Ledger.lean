@@ -39,3 +39,6 @@ import Ledger.DSL.QueryBuilder
 import Ledger.DSL.PullBuilder
 import Ledger.DSL.TxBuilder
 import Ledger.DSL.Combinators
+
+-- Persistence
+import Ledger.Persist
