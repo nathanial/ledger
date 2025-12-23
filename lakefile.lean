@@ -4,7 +4,7 @@ open Lake DSL
 package ledger where
   version := v!"0.1.0"
 
-require batteries from git "https://github.com/leanprover-community/batteries" @ "main"
+require batteries from git "https://github.com/leanprover-community/batteries" @ "v4.26.0"
 require crucible from ".." / "crucible"
 
 @[default_target]
