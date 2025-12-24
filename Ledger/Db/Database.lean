@@ -115,9 +115,28 @@ def get (db : Db) (e : EntityId) (a : Attribute) : List Value :=
   filterVisible datoms
 
 /-- Get a single value for an attribute (assumes cardinality one).
-    Returns the most recently asserted value that hasn't been retracted. -/
+    Returns the most recently asserted visible value. A value is visible
+    if its latest datom is an assertion (not retracted). -/
 def getOne (db : Db) (e : EntityId) (a : Attribute) : Option Value :=
-  (db.get e a).head?
+  let datoms := db.indexes.datomsForEntityAttr e a
+  -- Group datoms by value
+  let grouped : List (Value × List Datom) := datoms.foldl
+    (fun acc d =>
+      match acc.find? (fun (v, _) => v == d.value) with
+      | some _ => acc.map fun (v, ds) => if v == d.value then (v, d :: ds) else (v, ds)
+      | none => (d.value, [d]) :: acc)
+    []
+  -- For each value, check if visible (latest datom is assertion)
+  -- If visible, return (value, txId of that assertion)
+  let visibleWithTx : List (Value × Int) := grouped.filterMap fun (v, ds) =>
+    let sorted := ds.toArray.qsort (fun a b => a.tx.id > b.tx.id)
+    if h : sorted.size > 0 then
+      let latest := sorted[0]
+      if latest.added then some (v, latest.tx.id) else none
+    else none
+  -- Return the visible value with highest txId (most recently asserted)
+  let sortedVisible := visibleWithTx.toArray.qsort (fun a b => a.2 > b.2)
+  if h : sortedVisible.size > 0 then some sortedVisible[0].1 else none
 
 -- ============================================================
 -- Attribute-based queries (use AEVT index)

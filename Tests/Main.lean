@@ -686,6 +686,108 @@ test "Email retracted" := do
   let email := conn.current.getOne alice (Attribute.mk ":person/email")
   ensure email.isNone "Email should be retracted"
 
+/-! ## Cardinality-One (getOne) Tests -/
+
+test "getOne: single assertion returns value" := do
+  let conn := Connection.create
+  let (e, conn) := conn.allocEntityId
+  let tx : Transaction := [
+    .add e (Attribute.mk ":item/name") (Value.string "A")
+  ]
+  let .ok (conn, _) := conn.transact tx | throw <| IO.userError "Tx failed"
+  conn.db.getOne e (Attribute.mk ":item/name") ≡ some (Value.string "A")
+
+test "getOne: most recent assertion wins" := do
+  let conn := Connection.create
+  let (e, conn) := conn.allocEntityId
+  let tx1 : Transaction := [.add e (Attribute.mk ":item/name") (Value.string "A")]
+  let .ok (conn, _) := conn.transact tx1 | throw <| IO.userError "Tx1 failed"
+  let tx2 : Transaction := [.add e (Attribute.mk ":item/name") (Value.string "B")]
+  let .ok (conn, _) := conn.transact tx2 | throw <| IO.userError "Tx2 failed"
+  conn.db.getOne e (Attribute.mk ":item/name") ≡ some (Value.string "B")
+
+test "getOne: retraction reveals previous value" := do
+  let conn := Connection.create
+  let (e, conn) := conn.allocEntityId
+  -- Assert "A"
+  let tx1 : Transaction := [.add e (Attribute.mk ":item/name") (Value.string "A")]
+  let .ok (conn, _) := conn.transact tx1 | throw <| IO.userError "Tx1 failed"
+  -- Assert "B"
+  let tx2 : Transaction := [.add e (Attribute.mk ":item/name") (Value.string "B")]
+  let .ok (conn, _) := conn.transact tx2 | throw <| IO.userError "Tx2 failed"
+  -- Retract "B"
+  let tx3 : Transaction := [.retract e (Attribute.mk ":item/name") (Value.string "B")]
+  let .ok (conn, _) := conn.transact tx3 | throw <| IO.userError "Tx3 failed"
+  -- Should return "A" (the most recent visible value)
+  conn.db.getOne e (Attribute.mk ":item/name") ≡ some (Value.string "A")
+
+test "getOne: retract only value returns none" := do
+  let conn := Connection.create
+  let (e, conn) := conn.allocEntityId
+  let tx1 : Transaction := [.add e (Attribute.mk ":item/name") (Value.string "A")]
+  let .ok (conn, _) := conn.transact tx1 | throw <| IO.userError "Tx1 failed"
+  let tx2 : Transaction := [.retract e (Attribute.mk ":item/name") (Value.string "A")]
+  let .ok (conn, _) := conn.transact tx2 | throw <| IO.userError "Tx2 failed"
+  let result := conn.db.getOne e (Attribute.mk ":item/name")
+  ensure result.isNone "Should return none after retracting only value"
+
+test "getOne: new assertion after retraction" := do
+  let conn := Connection.create
+  let (e, conn) := conn.allocEntityId
+  let tx1 : Transaction := [.add e (Attribute.mk ":item/name") (Value.string "A")]
+  let .ok (conn, _) := conn.transact tx1 | throw <| IO.userError "Tx1 failed"
+  let tx2 : Transaction := [.retract e (Attribute.mk ":item/name") (Value.string "A")]
+  let .ok (conn, _) := conn.transact tx2 | throw <| IO.userError "Tx2 failed"
+  let tx3 : Transaction := [.add e (Attribute.mk ":item/name") (Value.string "B")]
+  let .ok (conn, _) := conn.transact tx3 | throw <| IO.userError "Tx3 failed"
+  conn.db.getOne e (Attribute.mk ":item/name") ≡ some (Value.string "B")
+
+test "getOne: retract all values returns none" := do
+  let conn := Connection.create
+  let (e, conn) := conn.allocEntityId
+  let tx1 : Transaction := [.add e (Attribute.mk ":item/name") (Value.string "A")]
+  let .ok (conn, _) := conn.transact tx1 | throw <| IO.userError "Tx1 failed"
+  let tx2 : Transaction := [.add e (Attribute.mk ":item/name") (Value.string "B")]
+  let .ok (conn, _) := conn.transact tx2 | throw <| IO.userError "Tx2 failed"
+  let tx3 : Transaction := [.retract e (Attribute.mk ":item/name") (Value.string "B")]
+  let .ok (conn, _) := conn.transact tx3 | throw <| IO.userError "Tx3 failed"
+  let tx4 : Transaction := [.retract e (Attribute.mk ":item/name") (Value.string "A")]
+  let .ok (conn, _) := conn.transact tx4 | throw <| IO.userError "Tx4 failed"
+  let result := conn.db.getOne e (Attribute.mk ":item/name")
+  ensure result.isNone "Should return none after retracting all values"
+
+test "getOne: re-assertion after retraction" := do
+  let conn := Connection.create
+  let (e, conn) := conn.allocEntityId
+  -- Assert "A"
+  let tx1 : Transaction := [.add e (Attribute.mk ":item/name") (Value.string "A")]
+  let .ok (conn, _) := conn.transact tx1 | throw <| IO.userError "Tx1 failed"
+  -- Retract "A"
+  let tx2 : Transaction := [.retract e (Attribute.mk ":item/name") (Value.string "A")]
+  let .ok (conn, _) := conn.transact tx2 | throw <| IO.userError "Tx2 failed"
+  -- Re-assert "A"
+  let tx3 : Transaction := [.add e (Attribute.mk ":item/name") (Value.string "A")]
+  let .ok (conn, _) := conn.transact tx3 | throw <| IO.userError "Tx3 failed"
+  conn.db.getOne e (Attribute.mk ":item/name") ≡ some (Value.string "A")
+
+test "getOne: multiple values with mixed retractions" := do
+  let conn := Connection.create
+  let (e, conn) := conn.allocEntityId
+  -- Add "A", "B", "C" in sequence
+  let tx1 : Transaction := [.add e (Attribute.mk ":item/name") (Value.string "A")]
+  let .ok (conn, _) := conn.transact tx1 | throw <| IO.userError "Tx1 failed"
+  let tx2 : Transaction := [.add e (Attribute.mk ":item/name") (Value.string "B")]
+  let .ok (conn, _) := conn.transact tx2 | throw <| IO.userError "Tx2 failed"
+  let tx3 : Transaction := [.add e (Attribute.mk ":item/name") (Value.string "C")]
+  let .ok (conn, _) := conn.transact tx3 | throw <| IO.userError "Tx3 failed"
+  -- Retract "C" and "B"
+  let tx4 : Transaction := [.retract e (Attribute.mk ":item/name") (Value.string "C")]
+  let .ok (conn, _) := conn.transact tx4 | throw <| IO.userError "Tx4 failed"
+  let tx5 : Transaction := [.retract e (Attribute.mk ":item/name") (Value.string "B")]
+  let .ok (conn, _) := conn.transact tx5 | throw <| IO.userError "Tx5 failed"
+  -- Should return "A" (the only remaining visible value)
+  conn.db.getOne e (Attribute.mk ":item/name") ≡ some (Value.string "A")
+
 /-! ## Entity History Tests -/
 
 test "Entity history count" := do
