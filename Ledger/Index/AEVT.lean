@@ -6,6 +6,7 @@
 -/
 
 import Batteries.Data.RBMap
+import Batteries.Data.HashMap
 import Ledger.Core.Datom
 import Ledger.Index.Types
 
@@ -41,9 +42,16 @@ def datomsForAttrEntity (a : Attribute) (e : EntityId) (idx : AEVTIndex) : List 
   (Batteries.RBMap.toList idx).filterMap fun (k, d) =>
     if k.attr == a && k.entity == e then some d else none
 
-/-- Get all entities that have a specific attribute. -/
+/-- Get all entities that have a specific attribute.
+    Implementation: O(n) using HashMap instead of O(n²) eraseDups. -/
 def entitiesWithAttr (a : Attribute) (idx : AEVTIndex) : List EntityId :=
-  (datomsForAttr a idx).map (·.entity) |>.eraseDups
+  let datoms := datomsForAttr a idx
+  -- Use HashMap as a set for O(n) deduplication instead of O(n²) eraseDups
+  let seen : Std.HashMap EntityId Unit := {}
+  let (_, result) := datoms.foldl (init := (seen, #[])) fun (seen, acc) d =>
+    if seen.contains d.entity then (seen, acc)
+    else (seen.insert d.entity (), acc.push d.entity)
+  result.toList
 
 /-- Get all datoms in the index. -/
 def allDatoms (idx : AEVTIndex) : List Datom :=

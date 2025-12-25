@@ -7,6 +7,7 @@
 -/
 
 import Batteries.Data.RBMap
+import Batteries.Data.HashMap
 import Ledger.Core.Datom
 import Ledger.Index.Types
 
@@ -42,9 +43,16 @@ def datomsReferencingEntity (target : EntityId) (idx : VAETIndex) : List Datom :
   (Batteries.RBMap.toList idx).filterMap fun (k, d) =>
     if k.value == Value.ref target then some d else none
 
-/-- Get all entities that reference a specific entity. -/
+/-- Get all entities that reference a specific entity.
+    Implementation: O(n) using HashMap instead of O(n²) eraseDups. -/
 def entitiesReferencing (target : EntityId) (idx : VAETIndex) : List EntityId :=
-  (datomsReferencingEntity target idx).map (·.entity) |>.eraseDups
+  let datoms := datomsReferencingEntity target idx
+  -- Use HashMap as a set for O(n) deduplication instead of O(n²) eraseDups
+  let seen : Std.HashMap EntityId Unit := {}
+  let (_, result) := datoms.foldl (init := (seen, #[])) fun (seen, acc) d =>
+    if seen.contains d.entity then (seen, acc)
+    else (seen.insert d.entity (), acc.push d.entity)
+  result.toList
 
 /-- Get all datoms that reference a specific entity via a specific attribute.
     E.g., "find all entities where :person/friend points to entity X" -/
