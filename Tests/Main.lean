@@ -13,6 +13,7 @@ import Tests.Pull
 import Tests.DSL
 import Tests.Persistence
 import Tests.Derive
+import Tests.Performance
 
 open Crucible
 

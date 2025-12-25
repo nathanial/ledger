@@ -7,6 +7,7 @@
 -/
 
 import Batteries.Data.RBMap
+import Batteries.Data.HashMap
 import Ledger.Core.Datom
 import Ledger.Index.Types
 
@@ -40,21 +41,27 @@ def datomsForAttrValue (a : Attribute) (v : Value) (idx : AVETIndex) : List Dato
 
 /-- Get entities with a specific attribute value.
     Primary use case: lookup by unique attribute.
-    Filters out entities where the fact has been retracted. -/
+    Filters out entities where the fact has been retracted.
+
+    Implementation: Single-pass O(n) algorithm using HashMap to track
+    each entity's latest transaction state, instead of O(n²) nested scan. -/
 def entitiesWithAttrValue (a : Attribute) (v : Value) (idx : AVETIndex) : List EntityId :=
-  let datoms := datomsForAttrValue a v idx
-  -- Group by entity and check if the latest tx is an assertion
-  let entities := datoms.map (·.entity) |>.eraseDups
-  entities.filter fun e =>
-    -- Get all datoms for this entity/attr/value and find the one with highest tx
-    let entityDatoms := (Batteries.RBMap.toList idx).filterMap fun (k, d) =>
-      if k.attr == a && k.value == v && d.entity == e then some d else none
-    match entityDatoms.foldl (init := none) (fun acc d =>
-      match acc with
-      | none => some d
-      | some prev => if d.tx.id > prev.tx.id then some d else some prev) with
-    | some latest => latest.added
-    | none => false
+  -- Single pass: build HashMap of entity -> (latestTxId, isAdded)
+  let entityState : Std.HashMap EntityId (Nat × Bool) :=
+    Batteries.RBMap.foldl (init := {}) (fun acc k d =>
+      if k.attr == a && k.value == v then
+        -- Update entity's state if this is a newer transaction
+        match acc[d.entity]? with
+        | none => acc.insert d.entity (d.tx.id, d.added)
+        | some (prevTxId, _) =>
+          if d.tx.id > prevTxId
+          then acc.insert d.entity (d.tx.id, d.added)
+          else acc
+      else acc) idx
+
+  -- Filter to entities where latest transaction was an assertion
+  entityState.toList.filterMap fun (e, (_, added)) =>
+    if added then some e else none
 
 /-- Get the first entity with a specific attribute value.
     Useful for unique attributes where only one entity should match. -/

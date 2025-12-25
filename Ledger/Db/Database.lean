@@ -4,6 +4,7 @@
   Immutable database snapshot - the core "database as a value" abstraction.
 -/
 
+import Std.Data.HashMap
 import Ledger.Core.EntityId
 import Ledger.Core.Attribute
 import Ledger.Core.Value
@@ -91,22 +92,25 @@ def entity (db : Db) (e : EntityId) : List Datom :=
   db.indexes.datomsForEntity e
 
 /-- Filter datoms to get only visible (not retracted) values.
-    For each (entity, attr, value), check if the most recent datom is an assertion. -/
+    For each (entity, attr, value), check if the most recent datom is an assertion.
+
+    Implementation: O(n) using HashMap for grouping instead of O(n²) list-based. -/
 private def filterVisible (datoms : List Datom) : List Value :=
-  -- Group datoms by value, then for each value keep only if latest is assertion
-  let grouped : List (Value × List Datom) := datoms.foldl
-    (fun (acc : List (Value × List Datom)) (d : Datom) =>
-      match acc.find? (fun (v, _) => v == d.value) with
-      | some _ => acc.map fun (v, ds') => if v == d.value then (v, d :: ds') else (v, ds')
-      | none => (d.value, [d]) :: acc)
-    []
-  grouped.filterMap fun (v, ds) =>
-    -- Sort by tx descending and check if most recent is added
-    let sorted := ds.toArray.qsort (fun a b => a.tx.id > b.tx.id)
-    if h : sorted.size > 0 then
-      if sorted[0].added then some v else none
-    else
-      none
+  -- Group datoms by value using HashMap: O(n)
+  let grouped : Std.HashMap Value (Array Datom) := datoms.foldl
+    (fun acc d =>
+      match acc[d.value]? with
+      | none => acc.insert d.value #[d]
+      | some ds => acc.insert d.value (ds.push d))
+    {}
+  -- For each group, find latest and check if added: O(n total)
+  grouped.toList.filterMap fun (v, ds) =>
+    if h : ds.size > 0 then
+      -- Find datom with max tx
+      let latest := ds.foldl (init := ds[0]) fun best d =>
+        if d.tx.id > best.tx.id then d else best
+      if latest.added then some v else none
+    else none
 
 /-- Get all values for a specific attribute of an entity.
     Only returns values that are currently asserted (not retracted). -/
@@ -116,22 +120,25 @@ def get (db : Db) (e : EntityId) (a : Attribute) : List Value :=
 
 /-- Get a single value for an attribute (assumes cardinality one).
     Returns the most recently asserted visible value. A value is visible
-    if its latest datom is an assertion (not retracted). -/
+    if its latest datom is an assertion (not retracted).
+
+    Implementation: O(n) using HashMap for grouping instead of O(n²) list-based. -/
 def getOne (db : Db) (e : EntityId) (a : Attribute) : Option Value :=
   let datoms := db.indexes.datomsForEntityAttr e a
-  -- Group datoms by value
-  let grouped : List (Value × List Datom) := datoms.foldl
+  -- Group datoms by value using HashMap: O(n)
+  let grouped : Std.HashMap Value (Array Datom) := datoms.foldl
     (fun acc d =>
-      match acc.find? (fun (v, _) => v == d.value) with
-      | some _ => acc.map fun (v, ds) => if v == d.value then (v, d :: ds) else (v, ds)
-      | none => (d.value, [d]) :: acc)
-    []
+      match acc[d.value]? with
+      | none => acc.insert d.value #[d]
+      | some ds => acc.insert d.value (ds.push d))
+    {}
   -- For each value, check if visible (latest datom is assertion)
   -- If visible, return (value, txId of that assertion)
-  let visibleWithTx : List (Value × Int) := grouped.filterMap fun (v, ds) =>
-    let sorted := ds.toArray.qsort (fun a b => a.tx.id > b.tx.id)
-    if h : sorted.size > 0 then
-      let latest := sorted[0]
+  let visibleWithTx : List (Value × Nat) := grouped.toList.filterMap fun (v, ds) =>
+    if h : ds.size > 0 then
+      -- Find datom with max tx
+      let latest := ds.foldl (init := ds[0]) fun best d =>
+        if d.tx.id > best.tx.id then d else best
       if latest.added then some (v, latest.tx.id) else none
     else none
   -- Return the visible value with highest txId (most recently asserted)
