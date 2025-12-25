@@ -1,8 +1,17 @@
 # Ledger
 
-A Datomic-like fact-based database for Lean 4.
+A Datomic-inspired fact-based database for Lean 4.
 
-Ledger implements an immutable, time-traveling database where all data is stored as facts (datoms). It supports Datalog-style queries, a pull API for entity retrieval, and multiple index types for efficient access patterns.
+Ledger implements an immutable, time-traveling database where all data is stored as facts (datoms). It supports Datalog-style queries, a Pull API for hierarchical entity retrieval, and four index types for efficient access patterns.
+
+## Documentation
+
+See the [docs/](docs/) folder for comprehensive documentation:
+
+- [Architecture](docs/architecture.md) - Core concepts, indexes, and the immutability model
+- [Getting Started](docs/getting-started.md) - Tutorial with working examples
+- [Design Decisions](docs/design-decisions.md) - Cardinality model and Datomic comparison
+- [API Reference](docs/api-reference.md) - Complete API documentation
 
 ## Installation
 
@@ -24,75 +33,109 @@ lake build
 ```lean
 import Ledger
 
--- Create a connection
-let conn ← Connection.create
+-- Create a database and allocate an entity ID
+let db := Db.empty
+let (alice, db) := db.allocEntityId
 
--- Transact some data
-conn.transact [
-  TxData.add tempId "person/name" (Value.string "Alice"),
-  TxData.add tempId "person/age" (Value.int 30)
-]
+-- Build and execute a transaction
+let tx := DSL.tx
+  |>.addStr alice ":person/name" "Alice"
+  |>.addInt alice ":person/age" 30
+  |>.addStr alice ":person/email" "alice@example.com"
+let .ok (db, _) := tx.run db | panic! "Transaction failed"
 
--- Query the database
-let db ← conn.db
-let results ← db.query do
-  find [?name, ?age]
-  where_ [
-    [?e, "person/name", ?name],
-    [?e, "person/age", ?age]
-  ]
+-- Query: direct attribute access
+let name := db.getOne alice (Attribute.mk ":person/name")
+-- => some (Value.string "Alice")
+
+-- Query: find entities by value
+let alices := db.findByAttrValue
+  (Attribute.mk ":person/name")
+  (Value.string "Alice")
+-- => [alice]
+
+-- Query: Datalog-style
+let result := DSL.query
+  |>.find "name"
+  |>.where_ "e" ":person/name" "name"
+  |>.whereInt "e" ":person/age" 30
+  |>.run db
 ```
 
 ## Features
 
 ### Datoms
 
-All data is stored as datoms: `[entity, attribute, value, transaction, added?]`
+All data is stored as datoms - immutable 5-tuples:
 
-### Indexes
+```
+(entity, attribute, value, transaction, added)
+```
 
-Four index types for different access patterns:
+### Four Indexes
 
 | Index | Order | Use Case |
 |-------|-------|----------|
-| EAVT | Entity → Attribute → Value → Tx | Entity lookup |
-| AEVT | Attribute → Entity → Value → Tx | Attribute queries |
-| AVET | Attribute → Value → Entity → Tx | Value lookups |
-| VAET | Value → Attribute → Entity → Tx | Reverse references |
+| EAVT | Entity -> Attribute -> Value -> Tx | Entity lookup |
+| AEVT | Attribute -> Entity -> Value -> Tx | Attribute queries |
+| AVET | Attribute -> Value -> Entity -> Tx | Value lookups |
+| VAET | Value -> Attribute -> Entity -> Tx | Reverse references |
 
 ### Time Travel
 
-Access the database at any point in history:
+Query the database at any point in history:
 
 ```lean
-let historicalDb ← conn.asOf txId
-let pastResults ← historicalDb.query ...
+let conn := Connection.create
+-- ... transactions ...
+
+-- Get database as of a specific transaction
+let historicalDb := conn.asOf txId
+
+-- Get changes since a transaction
+let changes := conn.since txId
+
+-- Get full history of an entity
+let history := conn.entityHistory entityId
 ```
 
 ### Pull API
 
-Retrieve entity trees with pattern specifications:
+Retrieve hierarchical entity data:
 
 ```lean
-let person ← db.pull [
-  "person/name",
-  "person/age",
-  { "person/friends" => ["person/name"] }
-] entityId
+let result := DSL.pull
+  |>.attr ":person/name"
+  |>.attr ":person/age"
+  |>.nested ":person/company" [":company/name", ":company/city"]
+  |>.run db alice
 ```
 
 ### Query Engine
 
-Datalog-style queries with unification:
+Datalog-style queries with pattern matching:
 
 ```lean
-db.query do
-  find [?name]
-  where_ [
-    [?e, "person/name", ?name],
-    [?e, "person/age", ?age],
-    [(> ?age 21)]
-  ]
+let result := DSL.query
+  |>.findAll ["name", "age"]
+  |>.where_ "e" ":person/name" "name"
+  |>.where_ "e" ":person/age" "age"
+  |>.whereStr "e" ":person/city" "New York"
+  |>.run db
+```
+
+### Transaction DSL
+
+Fluent builders for ergonomic transactions:
+
+```lean
+let tx := DSL.tx
+  |>.entity alice
+    |>.str ":person/name" "Alice"
+    |>.int ":person/age" 30
+    |>.ref ":person/company" acmeCorp
+  |>.done
+  |>.addStr acmeCorp ":company/name" "Acme Corp"
 ```
 
 ## Architecture
@@ -102,10 +145,10 @@ Ledger/
 ├── Core/           # EntityId, Attribute, Value, Datom
 ├── Index/          # EAVT, AEVT, AVET, VAET indexes
 ├── Tx/             # Transaction types and processing
-├── Db/             # Database, TimeTravel, Connection
+├── Db/             # Database, Connection, TimeTravel
 ├── Query/          # AST, Binding, Unify, Executor
 ├── Pull/           # Pattern, Result, Executor
-└── DSL/            # Query, Pull, Tx builders
+└── DSL/            # TxBuilder, QueryBuilder, PullBuilder
 ```
 
 ## Building & Testing
@@ -118,6 +161,15 @@ lake build
 lake test
 ```
 
+## Design Notes
+
+Ledger differs from Datomic in its cardinality model:
+
+- **Datomic**: Cardinality is schema-declared; cardinality-one attributes auto-retract old values
+- **Ledger**: Cardinality is query-time; `getOne` returns most recent, `get` returns all visible values
+
+See [Design Decisions](docs/design-decisions.md) for the full rationale.
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
@@ -125,4 +177,4 @@ MIT License - see [LICENSE](LICENSE) for details.
 ## References
 
 - [Datomic](https://www.datomic.com/) - The original fact-based database
-- [Datascript](https://github.com/tonsky/datascript) - Immutable in-memory database
+- [Datascript](https://github.com/tonsky/datascript) - Immutable in-memory database for Clojure/ClojureScript
