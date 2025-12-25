@@ -28,6 +28,8 @@
   - `Person.pull` (construct entity from database)
   - `Person.createOps` (transaction builder for creation)
   - `Person.retractionOps` (transaction builder for deletion)
+  - `Person.set_name`, `Person.set_age` (per-field setters with cardinality-one enforcement)
+  - `Person.updateOps` (full struct update with cardinality-one enforcement)
 
   ## Important Limitation
 
@@ -108,6 +110,16 @@ def valueConstructor (typeName : Name) (accessor : String) : String :=
   else if typeName == ``Float then s!"Ledger.Value.float {accessor}"
   else if typeName == ``Ledger.EntityId then s!"Ledger.Value.ref {accessor}"
   else s!"Ledger.Value.string (toString {accessor})"
+
+/-- Get the Lean type string for a field type (for function signatures) -/
+def leanTypeName (typeName : Name) : String :=
+  if typeName == ``String then "String"
+  else if typeName == ``Int then "Int"
+  else if typeName == ``Nat then "Nat"
+  else if typeName == ``Bool then "Bool"
+  else if typeName == ``Float then "Float"
+  else if typeName == ``Ledger.EntityId then "Ledger.EntityId"
+  else "String"
 
 /-- Generate pull extraction code for a field type.
     Handles `.many` case by taking the first (most recent) value. -/
@@ -259,6 +271,34 @@ def retractionOps (db : Ledger.Db) (eid : Ledger.EntityId) : List Ledger.TxOp :=
   attributes.filterMap fun attr =>
     db.getOne eid attr |>.map fun v => Ledger.TxOp.retract eid attr v"
   elaborateCodeString retractionCode
+
+  -- ========================================
+  -- 7. Generate per-field set_<field> functions
+  -- ========================================
+  for field in regularFields do
+    let fieldStr := toString field.name
+    let typeStr := leanTypeName field.typeName
+    let valExpr := valueConstructor field.typeName "value"
+    let setCode := s!"/-- Set the {fieldStr} field, retracting old value if present (cardinality-one) -/
+def set_{fieldStr} (db : Ledger.Db) (eid : Ledger.EntityId) (value : {typeStr}) : List Ledger.TxOp :=
+  let newVal := {valExpr}
+  match db.getOne eid attr_{fieldStr} with
+  | some oldVal => if oldVal == newVal then [] else [Ledger.TxOp.retract eid attr_{fieldStr} oldVal, Ledger.TxOp.add eid attr_{fieldStr} newVal]
+  | none => [Ledger.TxOp.add eid attr_{fieldStr} newVal]"
+    elaborateCodeString setCode
+
+  -- ========================================
+  -- 8. Generate updateOps (full struct update)
+  -- ========================================
+  let setterCalls := regularFields.toList.map fun f =>
+    s!"set_{f.name} db eid entity.{f.name}"
+  let settersStr := String.intercalate " ++\n    " setterCalls
+
+  let updateOpsCode := s!"/-- Update all fields of an entity, retracting old values if present (cardinality-one) -/
+def updateOps (db : Ledger.Db) (eid : Ledger.EntityId) (entity : {declName}) : List Ledger.TxOp :=
+  {settersStr}"
+
+  elaborateCodeString updateOpsCode
 
   -- Close namespace
   let endNs := s!"end {declName}"
