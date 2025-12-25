@@ -138,6 +138,28 @@ let tx := DSL.tx
   |>.addStr acmeCorp ":company/name" "Acme Corp"
 ```
 
+### Entity Code Generation
+
+Define typed entity structures and generate database operations:
+
+```lean
+structure DbTask where
+  id : Nat
+  title : String
+  status : String
+  assignee : EntityId
+
+makeLedgerEntity DbTask "task"
+-- Generates: attr_*, createOps, pull, set_*, updateOps
+```
+
+Per-field setters automatically handle cardinality-one semantics:
+
+```lean
+-- Automatically retracts old value before adding new one
+let tx := DbTask.set_status db taskId "done"
+```
+
 ## Architecture
 
 ```

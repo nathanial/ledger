@@ -308,14 +308,36 @@ Will validate that retracted facts exist, with options for:
 - Strict mode (error on non-existent)
 - Lenient mode (current behavior)
 
-### Considered: TxOp.set
+### Implemented: Cardinality-One Helpers via makeLedgerEntity
 
-A convenience operation for cardinality-one updates:
+The `makeLedgerEntity` macro now generates per-field setters that automatically handle cardinality-one semantics:
 
 ```lean
--- Proposed: automatically retracts existing and adds new
-.set alice ":person/email" (Value.string "new@example.com")
+-- Define your entity structure
+structure Person where
+  id : Nat
+  name : String
+  email : String
+  age : Nat
+
+-- Generate helpers (in a separate file)
+makeLedgerEntity Person
+
+-- Now you can use:
+-- Person.set_name db eid "Alice"   -- retracts old value if present, then adds
+-- Person.set_email db eid "alice@new.com"
+-- Person.updateOps db eid person   -- updates all fields at once
 ```
+
+The generated `set_<field>` functions:
+1. Check for an existing value with `db.getOne`
+2. If a value exists and differs, emit a `retract` then `add`
+3. If no value exists, just emit an `add`
+4. If the value is unchanged, emit nothing (no-op)
+
+This solves the "forgot to retract" problem at the code generation level rather than the database level, keeping the core database simple and schema-free while providing convenience for application code.
+
+See [API Reference](api-reference.md#makeledgerentity-code-generation) for complete documentation.
 
 ## See Also
 

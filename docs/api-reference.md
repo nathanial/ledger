@@ -568,6 +568,107 @@ High-level convenience functions.
 
 ---
 
+## makeLedgerEntity Code Generation
+
+The `makeLedgerEntity` macro generates database helpers from Lean structures.
+
+### Usage
+
+```lean
+-- File: MyTypes.lean
+structure Person where
+  id : Nat           -- id field is skipped (derived from EntityId)
+  name : String
+  email : String
+  age : Nat
+
+-- File: MyEntities.lean (must be separate file!)
+import MyTypes
+import Ledger.Derive.LedgerEntity
+
+open Ledger.Derive in
+makeLedgerEntity Person
+-- or with custom prefix:
+makeLedgerEntity Person (attrPrefix := "person")
+```
+
+### Generated Functions
+
+For a structure `Person` with fields `name`, `email`, `age`:
+
+#### Attribute Constants
+
+| Generated | Type | Value |
+|-----------|------|-------|
+| `Person.attr_name` | `Attribute` | `":person/name"` |
+| `Person.attr_email` | `Attribute` | `":person/email"` |
+| `Person.attr_age` | `Attribute` | `":person/age"` |
+| `Person.attributes` | `List Attribute` | All attributes |
+
+#### Pull Specification
+
+| Generated | Type | Description |
+|-----------|------|-------------|
+| `Person.pullSpec` | `PullSpec` | Pull pattern for all fields |
+| `Person.pull` | `Db -> EntityId -> Option Person` | Pull and construct struct |
+
+#### Transaction Builders
+
+| Generated | Type | Description |
+|-----------|------|-------------|
+| `Person.createOps` | `EntityId -> Person -> Transaction` | Create new entity |
+| `Person.retractionOps` | `Db -> EntityId -> List TxOp` | Retract all attributes |
+| `Person.updateOps` | `Db -> EntityId -> Person -> List TxOp` | Update all fields (cardinality-one) |
+
+#### Per-Field Setters (Cardinality-One)
+
+| Generated | Type | Description |
+|-----------|------|-------------|
+| `Person.set_name` | `Db -> EntityId -> String -> List TxOp` | Set name (retracts old) |
+| `Person.set_email` | `Db -> EntityId -> String -> List TxOp` | Set email (retracts old) |
+| `Person.set_age` | `Db -> EntityId -> Nat -> List TxOp` | Set age (retracts old) |
+
+### Per-Field Setter Behavior
+
+The `set_<field>` functions enforce cardinality-one semantics:
+
+```lean
+-- If person already has a name "Alice":
+let ops := Person.set_name db eid "Bob"
+-- ops = [TxOp.retract eid :person/name "Alice", TxOp.add eid :person/name "Bob"]
+
+-- If value is unchanged:
+let ops := Person.set_name db eid "Alice"
+-- ops = []  (no-op)
+
+-- If no existing value:
+let ops := Person.set_name db eid "Carol"
+-- ops = [TxOp.add eid :person/name "Carol"]
+```
+
+### Supported Field Types
+
+| Lean Type | Value Constructor | Notes |
+|-----------|-------------------|-------|
+| `String` | `Value.string` | |
+| `Int` | `Value.int` | |
+| `Nat` | `Value.int (Int.ofNat x)` | Stored as Int |
+| `Bool` | `Value.bool` | |
+| `Float` | `Value.float` | |
+| `EntityId` | `Value.ref` | Reference to another entity |
+
+### Important Notes
+
+1. **Separate file requirement**: `makeLedgerEntity` must be called in a different file than the structure definition (Lean elaboration ordering).
+
+2. **The `id` field is skipped**: Fields named `id` with type `Nat`, `Int`, or `EntityId` are not stored as attributes - they're derived from the `EntityId`.
+
+3. **Attribute prefix**: Defaults to lowercase struct name. Override with `attrPrefix := "custom"`.
+
+**Source**: `Ledger/Derive/LedgerEntity.lean`
+
+---
+
 ## See Also
 
 - [Architecture](architecture.md) - Core concepts

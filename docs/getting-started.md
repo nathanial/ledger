@@ -430,6 +430,82 @@ def main : IO Unit := do
     IO.println s!"  Tx {datom.tx.id}: {op} {datom.value}"
 ```
 
+## Defining Entity Types with `makeLedgerEntity`
+
+For structured data, use the `makeLedgerEntity` macro to generate type-safe database operations:
+
+```lean
+import Ledger
+import Ledger.Derive.LedgerEntity
+
+-- Define your entity structure
+structure DbTask where
+  id : Nat
+  title : String
+  description : String
+  status : String
+  assignee : EntityId
+  order : Nat
+deriving Repr
+
+-- Generate database operations (must be in a separate file)
+makeLedgerEntity DbTask "task"
+```
+
+This generates:
+
+| Generated | Purpose |
+|-----------|---------|
+| `DbTask.attr_title` | Attribute constant (`:task/title`) |
+| `DbTask.createOps` | Generate TxOps for initial creation |
+| `DbTask.retractionOps` | Generate TxOps for deletion |
+| `DbTask.pull` | Pull entity from database into structure |
+| `DbTask.set_title` | Update single field with automatic retraction |
+| `DbTask.updateOps` | Update all fields with automatic retraction |
+
+### Using Generated Setters
+
+The `set_<field>` functions handle cardinality-one semantics automatically:
+
+```lean
+-- Create a task
+let (taskId, conn) := conn.allocEntityId
+let task : DbTask := {
+  id := taskId.id.toNat
+  title := "Write docs"
+  description := "Document the API"
+  status := "pending"
+  assignee := alice
+  order := 0
+}
+let tx := DbTask.createOps taskId task
+let .ok (conn, _) := conn.transact tx | panic! "Failed"
+
+-- Update just the status (automatically retracts old value)
+let tx := DbTask.set_status conn.db taskId "in-progress"
+let .ok (conn, _) := conn.transact tx | panic! "Failed"
+
+-- Move to different assignee and update order
+let tx := DbTask.set_assignee conn.db taskId bob ++
+          DbTask.set_order conn.db taskId 5
+let .ok (conn, _) := conn.transact tx | panic! "Failed"
+```
+
+### Pulling Entities
+
+Retrieve a complete entity from the database:
+
+```lean
+match DbTask.pull conn.db taskId with
+| some task =>
+  IO.println s!"Task: {task.title}"
+  IO.println s!"Status: {task.status}"
+| none =>
+  IO.println "Task not found"
+```
+
+See [API Reference](api-reference.md#makeledgerentity-code-generation) for complete documentation.
+
 ## Next Steps
 
 - [Architecture](architecture.md) - Understand the underlying data model
