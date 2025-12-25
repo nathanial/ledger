@@ -42,3 +42,6 @@ import Ledger.DSL.Combinators
 
 -- Persistence
 import Ledger.Persist
+
+-- Derive handlers for automatic code generation
+import Ledger.Derive.LedgerEntity

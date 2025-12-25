@@ -12,6 +12,7 @@ import Tests.Query
 import Tests.Pull
 import Tests.DSL
 import Tests.Persistence
+import Tests.Derive
 
 open Crucible
 
