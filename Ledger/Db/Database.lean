@@ -93,8 +93,9 @@ def entity (db : Db) (e : EntityId) : List Datom :=
 
 /-- Filter datoms to get only visible (not retracted) values.
     For each (entity, attr, value), check if the most recent datom is an assertion.
+    Returns values sorted by their latest txId descending (most recent first).
 
-    Implementation: O(n) using HashMap for grouping instead of O(n²) list-based. -/
+    Implementation: O(n) using HashMap for grouping, then O(m log m) sort. -/
 private def filterVisible (datoms : List Datom) : List Value :=
   -- Group datoms by value using HashMap: O(n)
   let grouped : Std.HashMap Value (Array Datom) := datoms.foldl
@@ -103,14 +104,17 @@ private def filterVisible (datoms : List Datom) : List Value :=
       | none => acc.insert d.value #[d]
       | some ds => acc.insert d.value (ds.push d))
     {}
-  -- For each group, find latest and check if added: O(n total)
-  grouped.toList.filterMap fun (v, ds) =>
+  -- For each group, find latest and check if added, return (value, txId) pairs: O(n total)
+  let visibleWithTx : List (Value × Nat) := grouped.toList.filterMap fun (v, ds) =>
     if h : ds.size > 0 then
       -- Find datom with max tx
       let latest := ds.foldl (init := ds[0]) fun best d =>
         if d.tx.id > best.tx.id then d else best
-      if latest.added then some v else none
+      if latest.added then some (v, latest.tx.id) else none
     else none
+  -- Sort by txId descending (most recent first): O(m log m)
+  let sorted := visibleWithTx.toArray.qsort (fun a b => a.2 > b.2)
+  sorted.toList.map (·.1)
 
 /-- Get all values for a specific attribute of an entity.
     Only returns values that are currently asserted (not retracted). -/

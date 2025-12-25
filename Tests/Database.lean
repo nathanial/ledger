@@ -289,6 +289,106 @@ test "Charlie has no refs" := do
   let charlieRefs := db.referencingEntities charlie
   ensure charlieRefs.isEmpty "Charlie should have no refs"
 
+/-! ## Attribute Update Tests (reproducing title update bug) -/
+
+test "Update attribute in separate transaction" := do
+  -- Reproduce: entity with title "Magic", updated to "Magic Gun" in later tx
+  let db := Db.empty
+  let (card, db) := db.allocEntityId
+  -- First transaction: set title to "Magic"
+  let tx1 : Transaction := [
+    .add card (Attribute.mk ":card/title") (Value.string "Magic")
+  ]
+  let .ok (db, _) := db.transact tx1 | throw <| IO.userError "Tx1 failed"
+  -- Second transaction: set title to "Magic Gun"
+  let tx2 : Transaction := [
+    .add card (Attribute.mk ":card/title") (Value.string "Magic Gun")
+  ]
+  let .ok (db, _) := db.transact tx2 | throw <| IO.userError "Tx2 failed"
+  -- getOne should return "Magic Gun" (the most recently asserted value)
+  let title := db.getOne card (Attribute.mk ":card/title")
+  title ≡ some (Value.string "Magic Gun")
+
+test "Multiple updates to same attribute" := do
+  -- Three separate transactions updating the same attribute
+  let db := Db.empty
+  let (card, db) := db.allocEntityId
+  let tx1 : Transaction := [.add card (Attribute.mk ":card/title") (Value.string "A")]
+  let .ok (db, _) := db.transact tx1 | throw <| IO.userError "Tx1 failed"
+  let tx2 : Transaction := [.add card (Attribute.mk ":card/title") (Value.string "B")]
+  let .ok (db, _) := db.transact tx2 | throw <| IO.userError "Tx2 failed"
+  let tx3 : Transaction := [.add card (Attribute.mk ":card/title") (Value.string "C")]
+  let .ok (db, _) := db.transact tx3 | throw <| IO.userError "Tx3 failed"
+  -- Should return "C", the most recently asserted
+  let title := db.getOne card (Attribute.mk ":card/title")
+  title ≡ some (Value.string "C")
+
+test "Duplicate value assertions return latest" := do
+  -- Asserting the same value again in a later tx should still be visible
+  let db := Db.empty
+  let (card, db) := db.allocEntityId
+  let tx1 : Transaction := [.add card (Attribute.mk ":card/title") (Value.string "Magic")]
+  let .ok (db, _) := db.transact tx1 | throw <| IO.userError "Tx1 failed"
+  let tx2 : Transaction := [.add card (Attribute.mk ":card/title") (Value.string "Magic Gun")]
+  let .ok (db, _) := db.transact tx2 | throw <| IO.userError "Tx2 failed"
+  let tx3 : Transaction := [.add card (Attribute.mk ":card/title") (Value.string "Magic Gun")]
+  let .ok (db, _) := db.transact tx3 | throw <| IO.userError "Tx3 failed"
+  -- Should return "Magic Gun" (highest tx is tx3 for "Magic Gun")
+  let title := db.getOne card (Attribute.mk ":card/title")
+  title ≡ some (Value.string "Magic Gun")
+
+test "All updated values visible via get" := do
+  -- Using get (not getOne) should return all visible values
+  let db := Db.empty
+  let (card, db) := db.allocEntityId
+  let tx1 : Transaction := [.add card (Attribute.mk ":card/title") (Value.string "Magic")]
+  let .ok (db, _) := db.transact tx1 | throw <| IO.userError "Tx1 failed"
+  let tx2 : Transaction := [.add card (Attribute.mk ":card/title") (Value.string "Magic Gun")]
+  let .ok (db, _) := db.transact tx2 | throw <| IO.userError "Tx2 failed"
+  -- get returns all visible values (both are asserted, neither retracted)
+  let titles := db.get card (Attribute.mk ":card/title")
+  titles.length ≡ 2
+
+test "Retract and re-add same value" := do
+  let db := Db.empty
+  let (card, db) := db.allocEntityId
+  let tx1 : Transaction := [.add card (Attribute.mk ":card/title") (Value.string "Magic")]
+  let .ok (db, _) := db.transact tx1 | throw <| IO.userError "Tx1 failed"
+  let tx2 : Transaction := [.retract card (Attribute.mk ":card/title") (Value.string "Magic")]
+  let .ok (db, _) := db.transact tx2 | throw <| IO.userError "Tx2 failed"
+  let tx3 : Transaction := [.add card (Attribute.mk ":card/title") (Value.string "Magic")]
+  let .ok (db, _) := db.transact tx3 | throw <| IO.userError "Tx3 failed"
+  -- Should still return "Magic" since it was re-added
+  let title := db.getOne card (Attribute.mk ":card/title")
+  title ≡ some (Value.string "Magic")
+
+test "db.get order with multiple values" := do
+  -- Test that db.get returns values, but order may vary
+  let db := Db.empty
+  let (card, db) := db.allocEntityId
+  let tx1 : Transaction := [.add card (Attribute.mk ":card/title") (Value.string "Magic")]
+  let .ok (db, _) := db.transact tx1 | throw <| IO.userError "Tx1 failed"
+  let tx2 : Transaction := [.add card (Attribute.mk ":card/title") (Value.string "Magic Gun")]
+  let .ok (db, _) := db.transact tx2 | throw <| IO.userError "Tx2 failed"
+  -- db.get returns all visible values (both are visible since neither is retracted)
+  let titles := db.get card (Attribute.mk ":card/title")
+  -- Both values should be present
+  ensure (titles.length == 2) s!"Expected 2 values, got {titles.length}"
+  ensure (titles.contains (Value.string "Magic")) "Should contain Magic"
+  ensure (titles.contains (Value.string "Magic Gun")) "Should contain Magic Gun"
+
+test "db.get vs getOne with multiple values" := do
+  -- Verify getOne returns most recent while get returns all
+  let db := Db.empty
+  let (card, db) := db.allocEntityId
+  let tx1 : Transaction := [.add card (Attribute.mk ":card/title") (Value.string "Magic")]
+  let .ok (db, _) := db.transact tx1 | throw <| IO.userError "Tx1 failed"
+  let tx2 : Transaction := [.add card (Attribute.mk ":card/title") (Value.string "Magic Gun")]
+  let .ok (db, _) := db.transact tx2 | throw <| IO.userError "Tx2 failed"
+  -- getOne returns the most recently asserted value
+  let one := db.getOne card (Attribute.mk ":card/title")
+  one ≡ some (Value.string "Magic Gun")
+
 #generate_tests
 
 end Ledger.Tests.Database

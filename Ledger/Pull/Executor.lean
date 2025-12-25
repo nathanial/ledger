@@ -172,12 +172,15 @@ def pullMany (db : Db) (entities : List EntityId) (spec : PullSpec)
     (config : PullConfig := {}) : List PullResult :=
   entities.map fun e => pull db e spec config
 
-/-- Convenience: Pull a single attribute as a value. -/
+/-- Convenience: Pull a single attribute as a value.
+    If there are multiple values, returns the most recent one (first in list). -/
 def pullOne (db : Db) (e : EntityId) (attrName : String) : Option Value :=
   let result := pull db e [.attr (Attribute.mk attrName)]
   match result.get? (Attribute.mk attrName) with
   | some (.scalar v) => some v
   | some (.ref refE) => some (.ref refE)
+  | some (.many ((.scalar v) :: _)) => some v
+  | some (.many ((.ref refE) :: _)) => some (.ref refE)
   | _ => none
 
 /-- Convenience: Pull with attribute names. -/

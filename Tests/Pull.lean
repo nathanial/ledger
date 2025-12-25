@@ -136,6 +136,58 @@ test "Pull: many entities count" := do
   let results7 := Pull.pullMany db [alice, bob, charlie] [.attr (Attribute.mk ":person/name")]
   results7.length ≡ 3
 
+/-! ## Pull with Multiple Values (Bug Reproduction) -/
+
+test "Pull: multiple values returns many" := do
+  -- When an entity has multiple values for an attribute, pull returns .many
+  let db := Db.empty
+  let (card, db) := db.allocEntityId
+  let tx1 : Transaction := [.add card (Attribute.mk ":card/title") (Value.string "Magic")]
+  let .ok (db, _) := db.transact tx1 | throw <| IO.userError "Tx1 failed"
+  let tx2 : Transaction := [.add card (Attribute.mk ":card/title") (Value.string "Magic Gun")]
+  let .ok (db, _) := db.transact tx2 | throw <| IO.userError "Tx2 failed"
+  let result := Pull.pull db card [.attr (Attribute.mk ":card/title")]
+  match result.get? (Attribute.mk ":card/title") with
+  | some (.many vs) => vs.length ≡ 2
+  | some (.scalar _) => throw <| IO.userError "Expected .many, got .scalar (only one value)"
+  | _ => throw <| IO.userError "Expected title in result"
+
+test "Pull: multiple values - first should be most recent" := do
+  -- BUG TEST: When there are multiple values, the first one in .many should be
+  -- the most recently asserted value (highest txId). This test may fail if the
+  -- order is arbitrary (HashMap iteration order).
+  let db := Db.empty
+  let (card, db) := db.allocEntityId
+  let tx1 : Transaction := [.add card (Attribute.mk ":card/title") (Value.string "Magic")]
+  let .ok (db, _) := db.transact tx1 | throw <| IO.userError "Tx1 failed"
+  let tx2 : Transaction := [.add card (Attribute.mk ":card/title") (Value.string "Magic Gun")]
+  let .ok (db, _) := db.transact tx2 | throw <| IO.userError "Tx2 failed"
+  let result := Pull.pull db card [.attr (Attribute.mk ":card/title")]
+  match result.get? (Attribute.mk ":card/title") with
+  | some (.many ((PullValue.scalar (.string firstVal)) :: _)) =>
+    -- The first value should be "Magic Gun" (most recent)
+    -- If this fails, it means the order is wrong!
+    firstVal ≡ "Magic Gun"
+  | some (.scalar (.string v)) =>
+    -- If only one value returned, verify it's the most recent
+    v ≡ "Magic Gun"
+  | other => throw <| IO.userError s!"Expected string value, got {repr other}"
+
+test "Pull: pullOne with multiple values" := do
+  -- pullOne should return the most recent value via db.getOne
+  -- (But currently Pull uses db.get which returns all values)
+  let db := Db.empty
+  let (card, db) := db.allocEntityId
+  let tx1 : Transaction := [.add card (Attribute.mk ":card/title") (Value.string "Magic")]
+  let .ok (db, _) := db.transact tx1 | throw <| IO.userError "Tx1 failed"
+  let tx2 : Transaction := [.add card (Attribute.mk ":card/title") (Value.string "Magic Gun")]
+  let .ok (db, _) := db.transact tx2 | throw <| IO.userError "Tx2 failed"
+  -- pullOne uses pull internally, so it may have the same bug
+  let titleOpt := Pull.pullOne db card ":card/title"
+  match titleOpt with
+  | some (.string title) => title ≡ "Magic Gun"
+  | _ => throw <| IO.userError "Expected string value"
+
 #generate_tests
 
 end Ledger.Tests.Pull
