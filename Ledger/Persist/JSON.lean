@@ -10,6 +10,7 @@ import Ledger.Core.Attribute
 import Ledger.Core.Value
 import Ledger.Core.Datom
 import Ledger.Db.TimeTravel
+import Staple.Json
 
 namespace Ledger.Persist.JSON
 
@@ -218,14 +219,14 @@ def parseJsonString (s : ParseState) : Option (String × ParseState) := do
 /-- Serialize a Value to JSON string -/
 def valueToJson (v : Value) : String :=
   match v with
-  | .int n => s!"\{\"t\":\"int\",\"v\":{n}}"
-  | .float f => s!"\{\"t\":\"float\",\"v\":{f}}"
-  | .string s => s!"\{\"t\":\"string\",\"v\":\"{escapeString s}\"}"
-  | .bool b => s!"\{\"t\":\"bool\",\"v\":{b}}"
-  | .instant n => s!"\{\"t\":\"instant\",\"v\":{n}}"
-  | .ref e => s!"\{\"t\":\"ref\",\"v\":{e.id}}"
-  | .keyword k => s!"\{\"t\":\"keyword\",\"v\":\"{escapeString k}\"}"
-  | .bytes data => s!"\{\"t\":\"bytes\",\"v\":\"{base64Encode data}\"}"
+  | .int n => jsonStr! { "t" : "int", "v" : n }
+  | .float f => jsonStr! { "t" : "float", "v" : f }
+  | .string s => jsonStr! { "t" : "string", "v" : s }
+  | .bool b => jsonStr! { "t" : "bool", "v" : b }
+  | .instant n => jsonStr! { "t" : "instant", "v" : n }
+  | .ref e => jsonStr! { "t" : "ref", "v" : e.id }
+  | .keyword k => jsonStr! { "t" : "keyword", "v" : k }
+  | .bytes data => jsonStr! { "t" : "bytes", "v" : base64Encode data }
 
 /-- Skip over a JSON value (for parsing) -/
 def skipJsonValue (s : ParseState) : ParseState := Id.run do

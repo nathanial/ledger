@@ -6,6 +6,7 @@ package ledger where
 
 require batteries from git "https://github.com/leanprover-community/batteries" @ "v4.26.0"
 require crucible from ".." / "crucible"
+require staple from ".." / "staple"
 
 @[default_target]
 lean_lib Ledger where
