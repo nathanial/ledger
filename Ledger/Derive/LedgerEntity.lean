@@ -30,6 +30,9 @@
   - `Person.retractionOps` (transaction builder for deletion)
   - `Person.set_name`, `Person.set_age` (per-field setters with cardinality-one enforcement)
   - `Person.updateOps` (full struct update with cardinality-one enforcement)
+  - `Person.TxM.create` (TxM monad entity creation)
+  - `Person.TxM.setName`, `Person.TxM.setAge` (TxM monad setters)
+  - `Person.TxM.delete` (TxM monad entity deletion)
 
   ## Important Limitation
 
@@ -46,6 +49,7 @@ import Ledger.Pull.Pattern
 import Ledger.Pull.Result
 import Ledger.Pull.Executor
 import Ledger.Db.Database
+import Ledger.DSL.TxM
 
 namespace Ledger.Derive
 
@@ -66,6 +70,10 @@ private def modifyFirstChar (f : Char → Char) (s : String) : String :=
 
 /-- Convert struct name to lowercase prefix (e.g., "TestPerson" -> "testperson") -/
 def toLowerPrefix (s : String) : String := s.toLower
+
+/-- Convert field name to camelCase setter name (e.g., "title" -> "setTitle") -/
+def toCamelCaseSetter (fieldName : String) : String :=
+  "set" ++ modifyFirstChar Char.toUpper fieldName
 
 /-! ## Field Analysis -/
 
@@ -120,6 +128,26 @@ def leanTypeName (typeName : Name) : String :=
   else if typeName == ``Float then "Float"
   else if typeName == ``Ledger.EntityId then "Ledger.EntityId"
   else "String"
+
+/-- Get the TxM setter function name for a field type -/
+def txmSetterName (typeName : Name) : String :=
+  if typeName == ``String then "Ledger.TxM.setStr"
+  else if typeName == ``Int then "Ledger.TxM.setInt"
+  else if typeName == ``Nat then "Ledger.TxM.setNat"
+  else if typeName == ``Bool then "Ledger.TxM.setBool"
+  else if typeName == ``Float then "Ledger.TxM.setFloat"
+  else if typeName == ``Ledger.EntityId then "Ledger.TxM.setRef"
+  else "Ledger.TxM.setStr"
+
+/-- Get the TxM add function name for a field type -/
+def txmAddName (typeName : Name) : String :=
+  if typeName == ``String then "Ledger.TxM.addStr"
+  else if typeName == ``Int then "Ledger.TxM.addInt"
+  else if typeName == ``Nat then "Ledger.TxM.addNat"
+  else if typeName == ``Bool then "Ledger.TxM.addBool"
+  else if typeName == ``Float then "Ledger.TxM.addFloat"
+  else if typeName == ``Ledger.EntityId then "Ledger.TxM.addRef"
+  else "Ledger.TxM.addStr"
 
 /-- Generate pull extraction code for a field type.
     Handles `.many` case by taking the first (most recent) value. -/
@@ -299,6 +327,41 @@ def updateOps (db : Ledger.Db) (eid : Ledger.EntityId) (entity : {declName}) : L
   {settersStr}"
 
   elaborateCodeString updateOpsCode
+
+  -- ========================================
+  -- 9. Generate TxM namespace with monadic helpers
+  -- ========================================
+  elaborateCodeString "namespace TxM"
+
+  -- 9a. Generate TxM.create
+  let txmCreateLines := regularFields.toList.map fun f =>
+    let addFn := txmAddName f.typeName
+    s!"  {addFn} eid attr_{f.name} entity.{f.name}"
+  let txmCreateBody := String.intercalate "\n" txmCreateLines
+
+  let txmCreateCode := s!"/-- Create an entity using TxM monad -/
+def create (eid : Ledger.EntityId) (entity : {declName}) : Ledger.TxM Unit := do
+{txmCreateBody}"
+  elaborateCodeString txmCreateCode
+
+  -- 9b. Generate TxM.set<Field> for each field
+  for field in regularFields do
+    let fieldStr := toString field.name
+    let camelName := toCamelCaseSetter fieldStr
+    let typeStr := leanTypeName field.typeName
+    let setterFn := txmSetterName field.typeName
+    let txmSetCode := s!"/-- Set {fieldStr} using TxM monad (cardinality-one) -/
+def {camelName} (eid : Ledger.EntityId) (value : {typeStr}) : Ledger.TxM Unit :=
+  {setterFn} eid attr_{fieldStr} value"
+    elaborateCodeString txmSetCode
+
+  -- 9c. Generate TxM.delete
+  let txmDeleteCode := s!"/-- Delete an entity by retracting all its attributes -/
+def delete (eid : Ledger.EntityId) : Ledger.TxM Unit :=
+  Ledger.TxM.retractAttrs eid attributes"
+  elaborateCodeString txmDeleteCode
+
+  elaborateCodeString "end TxM"
 
   -- Close namespace
   let endNs := s!"end {declName}"
