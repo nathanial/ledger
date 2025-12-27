@@ -57,8 +57,17 @@ open Lean Elab Command Meta Parser
 
 /-! ## Syntax Definitions -/
 
-/-- Main syntax: makeLedgerEntity StructName (attrPrefix := "prefix") -/
-syntax "makeLedgerEntity" ident ("(" "attrPrefix" ":=" str ")")? : command
+/-- Attribute name casing options -/
+inductive AttrCasing where
+  | camel   -- fieldName → fieldName (default)
+  | kebab   -- fieldName → field-name
+  deriving Inhabited, BEq
+
+/-- Syntax variants for makeLedgerEntity -/
+syntax "makeLedgerEntity" ident : command
+syntax "makeLedgerEntity" ident "(" "attrPrefix" ":=" str ")" : command
+syntax "makeLedgerEntity" ident "(" "attrCasing" ":=" ident ")" : command
+syntax "makeLedgerEntity" ident "(" "attrPrefix" ":=" str ")" "(" "attrCasing" ":=" ident ")" : command
 
 /-! ## Helper Functions -/
 
@@ -70,6 +79,23 @@ private def modifyFirstChar (f : Char → Char) (s : String) : String :=
 
 /-- Convert struct name to lowercase prefix (e.g., "TestPerson" -> "testperson") -/
 def toLowerPrefix (s : String) : String := s.toLower
+
+/-- Convert camelCase to kebab-case (e.g., "passwordHash" -> "password-hash") -/
+def toKebabCase (s : String) : String :=
+  let chars := s.toList
+  let result := chars.foldl (init := []) fun acc c =>
+    if c.isUpper then
+      if acc.isEmpty then [c.toLower]
+      else acc ++ ['-', c.toLower]
+    else
+      acc ++ [c]
+  String.mk result
+
+/-- Apply casing transformation to a field name -/
+def applyAttrCasing (casing : AttrCasing) (fieldName : String) : String :=
+  match casing with
+  | .camel => fieldName
+  | .kebab => toKebabCase fieldName
 
 /-- Convert field name to camelCase setter name (e.g., "title" -> "setTitle") -/
 def toCamelCaseSetter (fieldName : String) : String :=
@@ -189,7 +215,7 @@ def pullExtraction (typeName : Name) (fieldName : String) (attrName : String) : 
 /-! ## Main Implementation -/
 
 /-- Core implementation for generating LedgerEntity code -/
-def makeLedgerEntityCore (structName : Ident) (prefixOverride : Option String := none) : CommandElabM Unit := do
+def makeLedgerEntityCore (structName : Ident) (prefixOverride : Option String := none) (casing : AttrCasing := .camel) : CommandElabM Unit := do
   let env ← getEnv
 
   -- Resolve the struct with helpful error
@@ -239,8 +265,9 @@ def makeLedgerEntityCore (structName : Ident) (prefixOverride : Option String :=
   -- 1. Generate attribute constants (only for regular fields, not id)
   -- ========================================
   for field in regularFields do
+    let attrName := applyAttrCasing casing (toString field.name)
     let code := s!"/-- Attribute for {field.name} field -/\n" ++
-      s!"def attr_{field.name} : Ledger.Attribute := ⟨\":{nsPrefix}/{field.name}\"⟩"
+      s!"def attr_{field.name} : Ledger.Attribute := ⟨\":{nsPrefix}/{attrName}\"⟩"
     elaborateCodeString code
 
   -- ========================================
@@ -369,11 +396,25 @@ def delete (eid : Ledger.EntityId) : Ledger.TxM Unit :=
 
 /-! ## Command Elaborator -/
 
+/-- Parse casing identifier to AttrCasing -/
+def parseCasing (casingId : Ident) : CommandElabM AttrCasing := do
+  match casingId.getId with
+  | `camel => pure .camel
+  | `kebab => pure .kebab
+  | other => throwError s!"Unknown casing '{other}'. Expected 'camel' or 'kebab'."
+
 elab_rules : command
   | `(command| makeLedgerEntity $structName:ident) =>
     makeLedgerEntityCore structName
   | `(command| makeLedgerEntity $structName:ident ( attrPrefix := $prefixLit:str )) => do
     let pfx := prefixLit.getString
     makeLedgerEntityCore structName (some pfx)
+  | `(command| makeLedgerEntity $structName:ident ( attrCasing := $casingId:ident )) => do
+    let casing ← parseCasing casingId
+    makeLedgerEntityCore structName none casing
+  | `(command| makeLedgerEntity $structName:ident ( attrPrefix := $prefixLit:str ) ( attrCasing := $casingId:ident )) => do
+    let pfx := prefixLit.getString
+    let casing ← parseCasing casingId
+    makeLedgerEntityCore structName (some pfx) casing
 
 end Ledger.Derive
