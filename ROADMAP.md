@@ -270,27 +270,17 @@ ledger_query! {
 
 ## Code Improvements
 
-### [Priority: High] Implement Efficient Range Queries in Indexes
+### ~~[Completed] Implement Efficient Range Queries in Indexes~~
 
-**Current State:** All index query functions (`datomsForEntity`, `datomsForAttr`, etc.) in EAVT.lean, AEVT.lean, AVET.lean, and VAET.lean use `Batteries.RBMap.toList` followed by `filterMap`. This is O(n) for every query regardless of result size.
+**Status:** ✅ Completed
 
-**Proposed Change:** Use RBMap's range query capabilities or implement a B-tree/skip list for efficient range scans:
-- Use `RBMap.foldlM` with early termination
-- Or implement lower/upper bound navigation
-- Or switch to a data structure with native range query support
+Implemented range query optimization using `ForIn` with early termination:
+- Created `Ledger/Index/RBRange.lean` with `collectWhile`, `collectPairsWhile`, `collectFromWhile`
+- Added minimum bound constructors and match predicates to all key types in `Types.lean`
+- Updated all 4 index files (EAVT, AEVT, AVET, VAET) to use range queries
+- Added 12 correctness tests in `Tests/RangeQuery.lean`
 
-**Benefits:**
-- O(log n + k) query time where k is result size
-- Significant performance improvement for selective queries
-- Required for production-scale workloads
-
-**Affected Files:**
-- `Ledger/Index/EAVT.lean` (lines 39-57)
-- `Ledger/Index/AEVT.lean` (lines 35-50)
-- `Ledger/Index/AVET.lean` (lines 36-60)
-- `Ledger/Index/VAET.lean` (lines 41-65)
-
-**Estimated Effort:** Medium
+**Complexity:** O(s + k) where s = elements before range, k = elements in range. Early termination avoids full O(n) scan.
 
 ---
 
@@ -616,19 +606,11 @@ Tests have been refactored into topic-specific modules:
 
 ## Technical Debt
 
-### [Priority: High] Index Performance (Full Scans)
+### ~~[Completed] Index Performance (Full Scans)~~
 
-**Issue:** Every index query does a full scan of the RBMap, converting to list and filtering. This is O(n) regardless of query selectivity.
+**Status:** ✅ Completed
 
-**Location:**
-- `Ledger/Index/EAVT.lean`
-- `Ledger/Index/AEVT.lean`
-- `Ledger/Index/AVET.lean`
-- `Ledger/Index/VAET.lean`
-
-**Impact:** Poor query performance at scale; unsuitable for production workloads.
-
-**Remediation:** Implement proper range queries (see Code Improvements section).
+Resolved by implementing range queries with early termination. See "Implement Efficient Range Queries in Indexes" in Code Improvements section.
 
 ---
 
@@ -737,6 +719,12 @@ The following major features have been implemented since the initial roadmap:
 - Tests split into topic-specific modules (Core, Database, Query, Pull, DSL, Persistence, Derive, Performance)
 - Uses Crucible test framework
 
+### Range Query Optimization
+- **Location:** `Ledger/Index/RBRange.lean` and all index files
+- Uses `ForIn` with early termination for O(s + k) complexity
+- Avoids full list allocation from `RBMap.toList`
+- 12 correctness tests in `Tests/RangeQuery.lean`
+
 ---
 
 ## Summary
@@ -746,12 +734,11 @@ This roadmap identifies improvements across several categories:
 | Category | High | Medium | Low | Total |
 |----------|------|--------|-----|-------|
 | Features | 2 | 7 | 4 | 13 |
-| Code Improvements | 4 | 4 | 3 | 11 |
+| Code Improvements | 2 | 4 | 3 | 9 |
 | Code Cleanup | 1 | 2 | 5 | 8 |
-| Technical Debt | 2 | 3 | 2 | 7 |
+| Technical Debt | 1 | 3 | 2 | 6 |
 
 **Priority Focus:**
-1. **Performance:** Index range queries are critical for any production use
-2. **Correctness:** Proper negation, OR clause semantics, and retraction validation
-3. **Features:** Schema system, aggregation, and enhanced persistence would significantly expand use cases
-4. **Developer Experience:** Documentation, naming consistency, and macro DSL
+1. **Correctness:** Proper negation, OR clause semantics, and retraction validation
+2. **Features:** Schema system, aggregation, and enhanced persistence would significantly expand use cases
+3. **Developer Experience:** Documentation, naming consistency, and macro DSL

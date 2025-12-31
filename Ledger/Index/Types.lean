@@ -43,6 +43,33 @@ instance : LT EAVTKey where
 instance : LE EAVTKey where
   le a b := compare a b != .gt
 
+/-- Minimum possible Value for ordering (int has lowest typeTag). -/
+def minValue : Value := .int (-9223372036854775808)  -- Int64 min
+
+/-- Minimum possible Attribute for ordering. -/
+def minAttr : Attribute := ⟨""⟩
+
+/-- Minimum possible EntityId for ordering. -/
+def minEntity : EntityId := ⟨-9223372036854775808⟩  -- Int64 min
+
+/-- Minimum possible TxId for ordering. -/
+def minTx : TxId := TxId.genesis
+
+/-- Create minimum key for entity-based range query. -/
+def minForEntity (e : EntityId) : EAVTKey :=
+  { entity := e, attr := minAttr, value := minValue, tx := minTx }
+
+/-- Create minimum key for entity+attr range query. -/
+def minForEntityAttr (e : EntityId) (a : Attribute) : EAVTKey :=
+  { entity := e, attr := a, value := minValue, tx := minTx }
+
+/-- Check if key matches entity. -/
+def matchesEntity (e : EntityId) (k : EAVTKey) : Bool := k.entity == e
+
+/-- Check if key matches entity and attribute. -/
+def matchesEntityAttr (e : EntityId) (a : Attribute) (k : EAVTKey) : Bool :=
+  k.entity == e && k.attr == a
+
 end EAVTKey
 
 
@@ -78,6 +105,21 @@ instance : LT AEVTKey where
 
 instance : LE AEVTKey where
   le a b := compare a b != .gt
+
+/-- Create minimum key for attribute-based range query. -/
+def minForAttr (a : Attribute) : AEVTKey :=
+  { attr := a, entity := EAVTKey.minEntity, value := EAVTKey.minValue, tx := EAVTKey.minTx }
+
+/-- Create minimum key for attr+entity range query. -/
+def minForAttrEntity (a : Attribute) (e : EntityId) : AEVTKey :=
+  { attr := a, entity := e, value := EAVTKey.minValue, tx := EAVTKey.minTx }
+
+/-- Check if key matches attribute. -/
+def matchesAttr (a : Attribute) (k : AEVTKey) : Bool := k.attr == a
+
+/-- Check if key matches attribute and entity. -/
+def matchesAttrEntity (a : Attribute) (e : EntityId) (k : AEVTKey) : Bool :=
+  k.attr == a && k.entity == e
 
 end AEVTKey
 
@@ -115,6 +157,14 @@ instance : LT AVETKey where
 instance : LE AVETKey where
   le a b := compare a b != .gt
 
+/-- Create minimum key for attr+value range query. -/
+def minForAttrValue (a : Attribute) (v : Value) : AVETKey :=
+  { attr := a, value := v, entity := EAVTKey.minEntity, tx := EAVTKey.minTx }
+
+/-- Check if key matches attribute and value. -/
+def matchesAttrValue (a : Attribute) (v : Value) (k : AVETKey) : Bool :=
+  k.attr == a && k.value == v
+
 end AVETKey
 
 
@@ -151,6 +201,21 @@ instance : LT VAETKey where
 
 instance : LE VAETKey where
   le a b := compare a b != .gt
+
+/-- Create minimum key for value-based range query (for reverse references). -/
+def minForValue (v : Value) : VAETKey :=
+  { value := v, attr := EAVTKey.minAttr, entity := EAVTKey.minEntity, tx := EAVTKey.minTx }
+
+/-- Create minimum key for value+attr range query. -/
+def minForValueAttr (v : Value) (a : Attribute) : VAETKey :=
+  { value := v, attr := a, entity := EAVTKey.minEntity, tx := EAVTKey.minTx }
+
+/-- Check if key matches value. -/
+def matchesValue (v : Value) (k : VAETKey) : Bool := k.value == v
+
+/-- Check if key matches value and attribute. -/
+def matchesValueAttr (v : Value) (a : Attribute) (k : VAETKey) : Bool :=
+  k.value == v && k.attr == a
 
 end VAETKey
 

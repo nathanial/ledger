@@ -10,6 +10,7 @@ import Batteries.Data.RBMap
 import Batteries.Data.HashMap
 import Ledger.Core.Datom
 import Ledger.Index.Types
+import Ledger.Index.RBRange
 
 namespace Ledger
 
@@ -34,30 +35,32 @@ def insertDatom (idx : AVETIndex) (d : Datom) : AVETIndex :=
 
 /-- Get all datoms for an attribute and value (range scan).
     Useful for finding entities with a specific attribute value.
-    Only returns assertions (added = true), not retractions. -/
+    Only returns assertions (added = true), not retractions.
+    Uses early termination to avoid full index scan. -/
 def datomsForAttrValue (a : Attribute) (v : Value) (idx : AVETIndex) : List Datom :=
-  (Batteries.RBMap.toList idx).filterMap fun (k, d) =>
-    if k.attr == a && k.value == v && d.added then some d else none
+  RBRange.collectFromWhile idx (AVETKey.minForAttrValue a v) (AVETKey.matchesAttrValue a v)
+  |>.filter (·.added)
 
 /-- Get entities with a specific attribute value.
     Primary use case: lookup by unique attribute.
     Filters out entities where the fact has been retracted.
 
-    Implementation: Single-pass O(n) algorithm using HashMap to track
-    each entity's latest transaction state, instead of O(n²) nested scan. -/
+    Implementation: Uses range query for O(s + k) range access, then
+    HashMap to track each entity's latest transaction state. -/
 def entitiesWithAttrValue (a : Attribute) (v : Value) (idx : AVETIndex) : List EntityId :=
-  -- Single pass: build HashMap of entity -> (latestTxId, isAdded)
+  -- Get only datoms in range using early termination
+  let datoms := RBRange.collectPairsWhile idx
+    (fun k => AVETKey.matchesAttrValue a v k)
+
+  -- Build HashMap of entity -> (latestTxId, isAdded)
   let entityState : Std.HashMap EntityId (Nat × Bool) :=
-    Batteries.RBMap.foldl (init := {}) (fun acc k d =>
-      if k.attr == a && k.value == v then
-        -- Update entity's state if this is a newer transaction
-        match acc[d.entity]? with
-        | none => acc.insert d.entity (d.tx.id, d.added)
-        | some (prevTxId, _) =>
-          if d.tx.id > prevTxId
-          then acc.insert d.entity (d.tx.id, d.added)
-          else acc
-      else acc) idx
+    datoms.foldl (init := {}) fun acc (_, d) =>
+      match acc[d.entity]? with
+      | none => acc.insert d.entity (d.tx.id, d.added)
+      | some (prevTxId, _) =>
+        if d.tx.id > prevTxId
+        then acc.insert d.entity (d.tx.id, d.added)
+        else acc
 
   -- Filter to entities where latest transaction was an assertion
   entityState.toList.filterMap fun (e, (_, added)) =>
@@ -68,10 +71,10 @@ def entitiesWithAttrValue (a : Attribute) (v : Value) (idx : AVETIndex) : List E
 def entityWithAttrValue (a : Attribute) (v : Value) (idx : AVETIndex) : Option EntityId :=
   (entitiesWithAttrValue a v idx).head?
 
-/-- Get all datoms for an attribute (less efficient than AEVT for this). -/
+/-- Get all datoms for an attribute (less efficient than AEVT for this).
+    Uses early termination but still needs to scan all values for the attribute. -/
 def datomsForAttr (a : Attribute) (idx : AVETIndex) : List Datom :=
-  (Batteries.RBMap.toList idx).filterMap fun (k, d) =>
-    if k.attr == a then some d else none
+  RBRange.collectWhile idx (fun k => k.attr == a)
 
 /-- Get all datoms in the index. -/
 def allDatoms (idx : AVETIndex) : List Datom :=

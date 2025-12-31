@@ -9,6 +9,7 @@ import Batteries.Data.RBMap
 import Batteries.Data.HashMap
 import Ledger.Core.Datom
 import Ledger.Index.Types
+import Ledger.Index.RBRange
 
 namespace Ledger
 
@@ -32,15 +33,15 @@ def insertDatom (idx : AEVTIndex) (d : Datom) : AEVTIndex :=
   Batteries.RBMap.insert idx (keyOf d) d
 
 /-- Get all datoms for an attribute (range scan).
-    Returns all entities that have this attribute. -/
+    Returns all entities that have this attribute.
+    Uses early termination to avoid full index scan. -/
 def datomsForAttr (a : Attribute) (idx : AEVTIndex) : List Datom :=
-  (Batteries.RBMap.toList idx).filterMap fun (k, d) =>
-    if k.attr == a then some d else none
+  RBRange.collectFromWhile idx (AEVTKey.minForAttr a) (AEVTKey.matchesAttr a)
 
-/-- Get all datoms for an attribute and entity. -/
+/-- Get all datoms for an attribute and entity.
+    Uses early termination to avoid full index scan. -/
 def datomsForAttrEntity (a : Attribute) (e : EntityId) (idx : AEVTIndex) : List Datom :=
-  (Batteries.RBMap.toList idx).filterMap fun (k, d) =>
-    if k.attr == a && k.entity == e then some d else none
+  RBRange.collectFromWhile idx (AEVTKey.minForAttrEntity a e) (AEVTKey.matchesAttrEntity a e)
 
 /-- Get all entities that have a specific attribute.
     Implementation: O(n) using HashMap instead of O(n²) eraseDups. -/

@@ -8,6 +8,7 @@
 import Batteries.Data.RBMap
 import Ledger.Core.Datom
 import Ledger.Index.Types
+import Ledger.Index.RBRange
 
 namespace Ledger
 
@@ -35,17 +36,16 @@ def findByKey (idx : EAVTIndex) (key : EAVTKey) : Option Datom :=
   Batteries.RBMap.find? idx key
 
 /-- Get all datoms for an entity (range scan).
-    Returns datoms in EAVT order. -/
+    Returns datoms in EAVT order.
+    Uses early termination for O(s + k) complexity where s = elements before range,
+    k = elements in range. Avoids full O(n) list allocation. -/
 def datomsForEntity (e : EntityId) (idx : EAVTIndex) : List Datom :=
-  -- We need to find all entries where entity = e
-  -- Since RBMap doesn't have direct range queries, we filter
-  (Batteries.RBMap.toList idx).filterMap fun (k, d) =>
-    if k.entity == e then some d else none
+  RBRange.collectFromWhile idx (EAVTKey.minForEntity e) (EAVTKey.matchesEntity e)
 
-/-- Get all datoms for an entity and attribute (range scan). -/
+/-- Get all datoms for an entity and attribute (range scan).
+    Uses early termination to avoid full index scan. -/
 def datomsForEntityAttr (e : EntityId) (a : Attribute) (idx : EAVTIndex) : List Datom :=
-  (Batteries.RBMap.toList idx).filterMap fun (k, d) =>
-    if k.entity == e && k.attr == a then some d else none
+  RBRange.collectFromWhile idx (EAVTKey.minForEntityAttr e a) (EAVTKey.matchesEntityAttr e a)
 
 /-- Get a specific value for an entity and attribute (most recent assertion).
     Note: This returns all matching datoms, caller should filter by tx for current value. -/

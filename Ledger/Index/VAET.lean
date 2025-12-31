@@ -10,6 +10,7 @@ import Batteries.Data.RBMap
 import Batteries.Data.HashMap
 import Ledger.Core.Datom
 import Ledger.Index.Types
+import Ledger.Index.RBRange
 
 namespace Ledger
 
@@ -38,10 +39,11 @@ def insertDatom (idx : VAETIndex) (d : Datom) : VAETIndex :=
     idx
 
 /-- Get all datoms that reference a specific entity.
-    This is the primary use case for VAET - finding "who points to me". -/
+    This is the primary use case for VAET - finding "who points to me".
+    Uses early termination to avoid full index scan. -/
 def datomsReferencingEntity (target : EntityId) (idx : VAETIndex) : List Datom :=
-  (Batteries.RBMap.toList idx).filterMap fun (k, d) =>
-    if k.value == Value.ref target then some d else none
+  let refValue := Value.ref target
+  RBRange.collectFromWhile idx (VAETKey.minForValue refValue) (VAETKey.matchesValue refValue)
 
 /-- Get all entities that reference a specific entity.
     Implementation: O(n) using HashMap instead of O(n²) eraseDups. -/
@@ -55,10 +57,11 @@ def entitiesReferencing (target : EntityId) (idx : VAETIndex) : List EntityId :=
   result.toList
 
 /-- Get all datoms that reference a specific entity via a specific attribute.
-    E.g., "find all entities where :person/friend points to entity X" -/
+    E.g., "find all entities where :person/friend points to entity X"
+    Uses early termination to avoid full index scan. -/
 def datomsReferencingViaAttr (target : EntityId) (a : Attribute) (idx : VAETIndex) : List Datom :=
-  (Batteries.RBMap.toList idx).filterMap fun (k, d) =>
-    if k.value == Value.ref target && k.attr == a then some d else none
+  let refValue := Value.ref target
+  RBRange.collectFromWhile idx (VAETKey.minForValueAttr refValue a) (VAETKey.matchesValueAttr refValue a)
 
 /-- Get entities that reference a target via a specific attribute. -/
 def entitiesReferencingViaAttr (target : EntityId) (a : Attribute) (idx : VAETIndex) : List EntityId :=
