@@ -306,21 +306,17 @@ Implemented range query optimization using `ForIn` with early termination:
 
 ---
 
-### [Priority: High] Add DecidableEq Instance for Datom
+### ~~[Completed] Add DecidableEq Instance for Datom~~
 
-**Current State:** `Datom` only has a `BEq` instance but not `DecidableEq`. This limits its use in proofs and some library functions.
+**Status:** ✅ Completed
 
-**Proposed Change:** Add `deriving DecidableEq` to the Datom structure or implement the instance manually.
+Added `DecidableEq` instances:
+- `DecidableEq` for `ByteArray` (required by Value)
+- `DecidableEq` for `Float` (axiom-based, uses bit representation)
+- `DecidableEq` for `Value` (derived)
+- `DecidableEq` for `Datom` (derived, removed explicit BEq instance)
 
-**Benefits:**
-- Enable use with more Batteries/mathlib functions
-- Support for proofs about datom equality
-- Better Lean 4 idiom compliance
-
-**Affected Files:**
-- `Ledger/Core/Datom.lean` (line 28)
-
-**Estimated Effort:** Small
+4 new tests in `Tests/Core.lean` verify the implementation.
 
 ---
 
@@ -614,18 +610,15 @@ Resolved by implementing range queries with early termination. See "Implement Ef
 
 ---
 
-### [Priority: High] No Validation of Retractions
+### ~~[Completed] No Validation of Retractions~~
 
-**Issue:** The transaction processor in `Db.transact` does not verify that retracted facts actually exist. It simply adds retraction datoms without checking.
+**Status:** ✅ Completed
 
-**Location:** `Ledger/Db/Database.lean` (lines 61-71)
-
-**Impact:**
-- Silent failures when retracting non-existent facts
-- Potentially inconsistent historical data
-- `TxError.factNotFound` is defined but never raised
-
-**Remediation:** Add validation that checks if the fact exists before creating retraction datom, or document that retractions are unconditional.
+Implemented retraction validation in `Db.transact`:
+- Added `isFactAsserted` helper function to check if a fact is currently asserted
+- Retractions now verify the fact exists in pre-transaction state
+- Returns `TxError.factNotFound` with entity, attribute, and value if fact doesn't exist
+- 4 new tests in `Tests/Retraction.lean` verify the behavior
 
 ---
 
@@ -725,6 +718,18 @@ The following major features have been implemented since the initial roadmap:
 - Avoids full list allocation from `RBMap.toList`
 - 12 correctness tests in `Tests/RangeQuery.lean`
 
+### DecidableEq for Core Types
+- **Location:** `Ledger/Core/Value.lean`, `Ledger/Core/Datom.lean`
+- Added `DecidableEq` for `ByteArray`, `Float`, `Value`, and `Datom`
+- Enables use in type-theoretic proofs and more Lean 4 idioms
+- 4 tests in `Tests/Core.lean`
+
+### Retraction Validation
+- **Location:** `Ledger/Db/Database.lean`
+- Validates that facts exist before allowing retraction
+- Returns `TxError.factNotFound` for invalid retractions
+- 4 tests in `Tests/Retraction.lean`
+
 ---
 
 ## Summary
@@ -734,11 +739,11 @@ This roadmap identifies improvements across several categories:
 | Category | High | Medium | Low | Total |
 |----------|------|--------|-----|-------|
 | Features | 2 | 7 | 4 | 13 |
-| Code Improvements | 2 | 4 | 3 | 9 |
+| Code Improvements | 1 | 4 | 3 | 8 |
 | Code Cleanup | 1 | 2 | 5 | 8 |
-| Technical Debt | 1 | 3 | 2 | 6 |
+| Technical Debt | 0 | 3 | 2 | 5 |
 
 **Priority Focus:**
-1. **Correctness:** Proper negation, OR clause semantics, and retraction validation
+1. **Correctness:** Proper negation, OR clause semantics
 2. **Features:** Schema system, aggregation, and enhanced persistence would significantly expand use cases
 3. **Developer Experience:** Documentation, naming consistency, and macro DSL

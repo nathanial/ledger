@@ -12,6 +12,76 @@ open Ledger
 
 testSuite "Retraction & Time Travel"
 
+/-! ## Retraction Validation Tests -/
+
+test "Retract non-existent fact fails with factNotFound" := do
+  let conn := Connection.create
+  let (alice, conn) := conn.allocEntityId
+  -- Try to retract a fact that was never added
+  let tx : Transaction := [
+    .retract alice (Attribute.mk ":person/name") (Value.string "Alice")
+  ]
+  match conn.transact tx with
+  | .ok _ => throw <| IO.userError "Should have failed with factNotFound"
+  | .error (.factNotFound e a v) =>
+    ensure (e == alice) "Error should reference correct entity"
+    ensure (a == Attribute.mk ":person/name") "Error should reference correct attribute"
+    ensure (v == Value.string "Alice") "Error should reference correct value"
+  | .error err => throw <| IO.userError s!"Wrong error type: {err}"
+
+test "Double retraction fails with factNotFound" := do
+  let conn := Connection.create
+  let (alice, conn) := conn.allocEntityId
+  -- Add a fact
+  let tx1 : Transaction := [
+    .add alice (Attribute.mk ":person/name") (Value.string "Alice")
+  ]
+  let .ok (conn, _) := conn.transact tx1 | throw <| IO.userError "Tx1 failed"
+  -- Retract it
+  let tx2 : Transaction := [
+    .retract alice (Attribute.mk ":person/name") (Value.string "Alice")
+  ]
+  let .ok (conn, _) := conn.transact tx2 | throw <| IO.userError "Tx2 failed"
+  -- Try to retract again - should fail
+  let tx3 : Transaction := [
+    .retract alice (Attribute.mk ":person/name") (Value.string "Alice")
+  ]
+  match conn.transact tx3 with
+  | .ok _ => throw <| IO.userError "Double retraction should fail"
+  | .error (.factNotFound _ _ _) => pure ()
+  | .error err => throw <| IO.userError s!"Wrong error type: {err}"
+
+test "Retract wrong value fails with factNotFound" := do
+  let conn := Connection.create
+  let (alice, conn) := conn.allocEntityId
+  -- Add a fact
+  let tx1 : Transaction := [
+    .add alice (Attribute.mk ":person/name") (Value.string "Alice")
+  ]
+  let .ok (conn, _) := conn.transact tx1 | throw <| IO.userError "Tx1 failed"
+  -- Try to retract with wrong value
+  let tx2 : Transaction := [
+    .retract alice (Attribute.mk ":person/name") (Value.string "Bob")
+  ]
+  match conn.transact tx2 with
+  | .ok _ => throw <| IO.userError "Retract wrong value should fail"
+  | .error (.factNotFound _ _ _) => pure ()
+  | .error err => throw <| IO.userError s!"Wrong error type: {err}"
+
+test "Valid retraction still works" := do
+  let conn := Connection.create
+  let (alice, conn) := conn.allocEntityId
+  let tx1 : Transaction := [
+    .add alice (Attribute.mk ":person/name") (Value.string "Alice")
+  ]
+  let .ok (conn, _) := conn.transact tx1 | throw <| IO.userError "Tx1 failed"
+  let tx2 : Transaction := [
+    .retract alice (Attribute.mk ":person/name") (Value.string "Alice")
+  ]
+  let .ok (conn, _) := conn.transact tx2 | throw <| IO.userError "Valid retraction should succeed"
+  let name := conn.db.getOne alice (Attribute.mk ":person/name")
+  ensure name.isNone "Name should be retracted"
+
 /-! ## Retraction Filtering in Value Queries (AVET) Tests -/
 
 test "findByAttrValue excludes retracted entity" := do

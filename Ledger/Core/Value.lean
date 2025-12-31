@@ -12,6 +12,24 @@ namespace Ledger
 instance : Repr ByteArray where
   reprPrec ba _ := s!"#bytes[{ba.size}]"
 
+-- ByteArray needs DecidableEq for Value to derive it
+instance : DecidableEq ByteArray := fun a b =>
+  if h : a.data = b.data then
+    isTrue (by cases a; cases b; simp_all)
+  else
+    isFalse (by intro heq; cases heq; exact h rfl)
+
+-- Float needs DecidableEq for Value to derive it
+-- Uses bit representation comparison (axiom-based)
+axiom Float.eq_of_beq : ∀ (a b : Float), (a == b) = true → a = b
+axiom Float.ne_of_beq_false : ∀ (a b : Float), (a == b) = false → a ≠ b
+
+instance : DecidableEq Float := fun a b =>
+  if h : (a == b) = true then
+    isTrue (Float.eq_of_beq a b h)
+  else
+    isFalse (Float.ne_of_beq_false a b (Bool.eq_false_iff.mpr h))
+
 /-- Polymorphic value type for datom values.
     Supports common primitive types plus entity references. -/
 inductive Value where
@@ -31,7 +49,7 @@ inductive Value where
   | keyword (v : String)
   /-- Raw bytes -/
   | bytes (v : ByteArray)
-  deriving Repr, Inhabited
+  deriving Repr, Inhabited, DecidableEq
 
 namespace Value
 

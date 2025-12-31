@@ -88,6 +88,36 @@ test "Datom equality" := do
   let d1 := Datom.assert e a v t
   ensure (d1.entity == e && d1.attr == a && d1.value == v) "Datom fields should match"
 
+/-! ## DecidableEq Tests -/
+
+test "Value DecidableEq - equal values" := do
+  let v1 := Value.string "hello"
+  let v2 := Value.string "hello"
+  -- Using DecidableEq for pattern matching
+  if v1 = v2 then pure () else throw <| IO.userError "Values should be equal"
+
+test "Value DecidableEq - different values" := do
+  let v1 := Value.string "hello"
+  let v2 := Value.string "world"
+  if v1 = v2 then throw <| IO.userError "Values should not be equal" else pure ()
+
+test "Datom DecidableEq - equal datoms" := do
+  let e := EntityId.mk 1
+  let a := Attribute.mk ":test/attr"
+  let v := Value.int 42
+  let t := TxId.mk 1
+  let d1 := Datom.assert e a v t
+  let d2 := Datom.assert e a v t
+  if d1 = d2 then pure () else throw <| IO.userError "Datoms should be equal"
+
+test "Datom DecidableEq - different datoms" := do
+  let e := EntityId.mk 1
+  let a := Attribute.mk ":test/attr"
+  let t := TxId.mk 1
+  let d1 := Datom.assert e a (Value.int 42) t
+  let d2 := Datom.assert e a (Value.int 43) t
+  if d1 = d2 then throw <| IO.userError "Datoms should not be equal" else pure ()
+
 #generate_tests
 
 end Ledger.Tests.Core

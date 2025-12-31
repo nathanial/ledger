@@ -50,6 +50,16 @@ def allocEntityIds (db : Db) (n : Nat) : List EntityId × Db :=
   let db' := { db with nextEntityId := ⟨startId + n⟩ }
   (ids, db')
 
+/-- Check if a specific fact is currently asserted (not retracted).
+    Used to validate retractions. -/
+private def isFactAsserted (indexes : Indexes) (e : EntityId) (a : Attribute) (v : Value) : Bool :=
+  let datoms := indexes.datomsForEntityAttr e a |>.filter (·.value == v)
+  match datoms.foldl (fun acc d => match acc with
+    | none => some d
+    | some prev => if d.tx.id > prev.tx.id then some d else acc) none with
+  | some latest => latest.added
+  | none => false
+
 /-- Process a transaction, producing a new database snapshot.
     This is a pure function - the original database is unchanged. -/
 def transact (db : Db) (tx : Transaction) (instant : Nat := 0) : Except TxError (Db × TxReport) := do
@@ -67,6 +77,9 @@ def transact (db : Db) (tx : Transaction) (instant : Nat := 0) : Except TxError 
       indexes := indexes.insertDatom datom
 
     | .retract entity attr value =>
+      -- Validate that the fact exists in the pre-transaction state
+      if !isFactAsserted db.indexes entity attr value then
+        throw (.factNotFound entity attr value)
       let datom := Datom.retract entity attr value newTxId
       datoms := datoms.push datom
       indexes := indexes.insertDatom datom

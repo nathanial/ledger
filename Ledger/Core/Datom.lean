@@ -25,17 +25,9 @@ structure Datom where
   tx : TxId
   /-- True if asserted, false if retracted -/
   added : Bool := true
-  deriving Repr, Inhabited
+  deriving Repr, Inhabited, DecidableEq
 
 namespace Datom
-
-instance : BEq Datom where
-  beq a b :=
-    a.entity == b.entity &&
-    a.attr == b.attr &&
-    a.value == b.value &&
-    a.tx == b.tx &&
-    a.added == b.added
 
 instance : ToString Datom where
   toString d :=
