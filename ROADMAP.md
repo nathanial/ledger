@@ -30,23 +30,26 @@ This document outlines potential improvements, new features, code cleanup opport
 
 ---
 
-### [Priority: High] Persistence Layer
+### [Priority: Medium] Enhanced Persistence Layer
 
-**Description:** Implement durable storage with disk-based persistence, append-only transaction log, and crash recovery.
+**Description:** Extend the existing JSONL-based persistence with snapshots and memory-mapped indexes.
 
-**Rationale:** Currently, all data is in-memory and lost on process termination. For production use, the database needs:
-- Append-only log file for durability
-- Periodic snapshots for faster recovery
+**Current State:** Basic persistence is implemented in `Ledger/Persist/`:
+- `JSONL.lean` - Append-only transaction log with `appendEntry` and `replayJournal`
+- `JSON.lean` - JSON serialization for datoms and values
+- `Connection.lean` - Persistent connection management
+
+**Remaining Work:**
+- Periodic snapshots for faster recovery on large logs
 - Memory-mapped indexes for large datasets
-- Crash recovery from log replay
+- Compaction of old transaction logs
 
 **Affected Files:**
-- New file: `Ledger/Storage/Log.lean`
-- New file: `Ledger/Storage/Snapshot.lean`
-- New file: `Ledger/Storage/Recovery.lean`
-- Modify: `Ledger/Db/Connection.lean` (add persistence to Connection)
+- New file: `Ledger/Persist/Snapshot.lean`
+- New file: `Ledger/Persist/Compaction.lean`
+- Modify: `Ledger/Persist/Connection.lean`
 
-**Estimated Effort:** Large
+**Estimated Effort:** Medium
 
 **Dependencies:** None
 
@@ -175,6 +178,8 @@ ledger_query! {
           [(> ?age 21)]]
 }
 ```
+
+**Note:** Entity code generation via `makeLedgerEntity` macro already exists in `Ledger/Derive/LedgerEntity.lean`, providing attribute constants, pull specs, transaction builders, and TxM monadic helpers. A query DSL would complement this.
 
 **Affected Files:**
 - New file: `Ledger/DSL/Macros.lean`
@@ -343,7 +348,7 @@ ledger_query! {
 - Better for potential formal verification
 
 **Affected Files:**
-- `Ledger/Pull/Executor.lean` (lines 84-146)
+- `Ledger/Pull/Executor.lean` (lines 81-147, mutual block with `partial` annotations)
 
 **Estimated Effort:** Medium
 
@@ -361,7 +366,7 @@ ledger_query! {
 - Consistent API design
 
 **Affected Files:**
-- `Ledger/DSL/TxBuilder.lean` (lines 134-140)
+- `Ledger/DSL/TxBuilder.lean` (lines 134-139)
 
 **Estimated Effort:** Small
 
@@ -502,18 +507,22 @@ ledger_query! {
 
 ---
 
-### [Priority: Medium] Extract Test Helpers into Separate Module
+### ~~[Completed] Extract Test Helpers into Separate Module~~
 
-**Issue:** The test file `Tests/Main.lean` is 945 lines and contains all test cases. No test helper utilities are extracted.
+**Status:** ✅ Completed
 
-**Location:** `Tests/Main.lean`
+Tests have been refactored into topic-specific modules:
+- `Tests/Core.lean` - Core type tests
+- `Tests/Database.lean` - Database operations
+- `Tests/Retraction.lean` - Fact retraction tests
+- `Tests/Query.lean` - Query engine tests
+- `Tests/Pull.lean` - Pull API tests
+- `Tests/DSL.lean` - DSL builder tests
+- `Tests/Persistence.lean` - Persistence layer tests
+- `Tests/Derive.lean` - Code generation tests
+- `Tests/Performance.lean` - Performance benchmarks
 
-**Action Required:**
-1. Create `Tests/Helpers.lean` with common test setup (create test db, populate test data)
-2. Split tests into topic-specific files: `Tests/Core.lean`, `Tests/Query.lean`, `Tests/Pull.lean`, etc.
-3. Use shared fixtures for common scenarios
-
-**Estimated Effort:** Medium
+`Tests/Main.lean` now imports all modules and runs all suites via Crucible.
 
 ---
 
@@ -708,19 +717,41 @@ ledger_query! {
 
 ---
 
+## Completed Features
+
+The following major features have been implemented since the initial roadmap:
+
+### Persistence Layer (Basic)
+- **Location:** `Ledger/Persist/`
+- JSONL append-only transaction log
+- JSON serialization for datoms and values
+- Journal replay for crash recovery
+
+### Entity Code Generation
+- **Location:** `Ledger/Derive/LedgerEntity.lean`
+- `makeLedgerEntity` macro generates attribute constants, pull specs, transaction builders
+- Per-field setters with cardinality-one semantics
+- TxM monadic helpers for entity CRUD
+
+### Test Suite Refactoring
+- Tests split into topic-specific modules (Core, Database, Query, Pull, DSL, Persistence, Derive, Performance)
+- Uses Crucible test framework
+
+---
+
 ## Summary
 
 This roadmap identifies improvements across several categories:
 
 | Category | High | Medium | Low | Total |
 |----------|------|--------|-----|-------|
-| Features | 3 | 6 | 4 | 13 |
+| Features | 2 | 7 | 4 | 13 |
 | Code Improvements | 4 | 4 | 3 | 11 |
-| Code Cleanup | 1 | 3 | 5 | 9 |
+| Code Cleanup | 1 | 2 | 5 | 8 |
 | Technical Debt | 2 | 3 | 2 | 7 |
 
 **Priority Focus:**
 1. **Performance:** Index range queries are critical for any production use
 2. **Correctness:** Proper negation, OR clause semantics, and retraction validation
-3. **Features:** Schema system, persistence, and aggregation would significantly expand use cases
+3. **Features:** Schema system, aggregation, and enhanced persistence would significantly expand use cases
 4. **Developer Experience:** Documentation, naming consistency, and macro DSL
