@@ -284,25 +284,17 @@ Implemented range query optimization using `ForIn` with early termination:
 
 ---
 
-### [Priority: High] Implement Proper Negation in Query Executor
+### ~~[Completed] Implement Proper Negation in Query Executor~~
 
-**Current State:** The query executor in `Ledger/Query/Executor.lean` returns an empty relation for negation (`.not` clause) with a comment "For now, simplified: returns empty (proper impl needs stratification)".
+**Status:** ✅ Completed
 
-**Proposed Change:** Implement proper negation-as-failure semantics:
-- Detect stratification violations (negation in recursive rules)
-- Evaluate negated clauses after positive clauses
-- Subtract matching bindings from the result
+Implemented proper negation-as-failure semantics in the query executor:
+- Refactored `executeClause` to accept an input `Relation` parameter for context threading
+- Each clause type now transforms input bindings: pattern joins, and chains, or unions, not filters
+- Negation evaluates inner clause with each input binding; keeps bindings where inner produces no matches
+- 4 new tests in `Tests/Query.lean` verify negation behavior
 
-**Benefits:**
-- Enable queries like "find people who are NOT managers"
-- Complete Datalog semantics
-- Required for many real-world queries
-
-**Affected Files:**
-- `Ledger/Query/Executor.lean` (line 92-95)
-- New file: `Ledger/Query/Stratification.lean`
-
-**Estimated Effort:** Medium
+**Implementation:** For each binding in the input relation, the negated clause is evaluated. If it produces no matches, the binding passes (negation succeeds).
 
 ---
 
@@ -667,7 +659,6 @@ Implemented retraction validation in `Db.transact`:
 
 **Issue:** Some features lack test coverage:
 - OR clauses in queries
-- NOT clauses (currently broken)
 - Limited pull patterns
 - TxError handling
 - Edge cases in time-travel (empty history, single transaction)
@@ -730,6 +721,13 @@ The following major features have been implemented since the initial roadmap:
 - Returns `TxError.factNotFound` for invalid retractions
 - 4 tests in `Tests/Retraction.lean`
 
+### Proper Query Negation
+- **Location:** `Ledger/Query/Executor.lean`
+- Refactored `executeClause` to accept input `Relation` for context threading
+- Implemented negation-as-failure: filter bindings where inner clause produces no matches
+- All clause types (pattern, and, or, not) transform input bindings correctly
+- 4 tests in `Tests/Query.lean`
+
 ---
 
 ## Summary
@@ -744,6 +742,6 @@ This roadmap identifies improvements across several categories:
 | Technical Debt | 0 | 3 | 2 | 5 |
 
 **Priority Focus:**
-1. **Correctness:** Proper negation, OR clause semantics
+1. **Correctness:** OR clause semantics (negation now complete ✅)
 2. **Features:** Schema system, aggregation, and enhanced persistence would significantly expand use cases
 3. **Developer Experience:** Documentation, naming consistency, and macro DSL

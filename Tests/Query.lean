@@ -110,6 +110,129 @@ test "Query: alice's name binding" := do
   let result5 := Query.executePattern pattern5 Binding.empty db.indexes
   result5.size ≡ 1
 
+/-! ## Negation Tests -/
+
+test "Query: negation excludes matching entities" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let (bob, db) := db.allocEntityId
+  let (charlie, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add alice (Attribute.mk ":person/name") (Value.string "Alice"),
+    .add bob (Attribute.mk ":person/name") (Value.string "Bob"),
+    .add charlie (Attribute.mk ":person/name") (Value.string "Charlie"),
+    .add alice (Attribute.mk ":person/role") (Value.string "manager"),
+    .add bob (Attribute.mk ":person/role") (Value.string "manager")
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
+  -- Find people who are NOT managers
+  let query : Query := {
+    find := [⟨"name"⟩]
+    where_ := [
+      .pattern {
+        entity := .var ⟨"e"⟩
+        attr := .attr (Attribute.mk ":person/name")
+        value := .var ⟨"name"⟩
+      },
+      .not (.pattern {
+        entity := .var ⟨"e"⟩
+        attr := .attr (Attribute.mk ":person/role")
+        value := .value (Value.string "manager")
+      })
+    ]
+  }
+  let result := Query.execute query db
+  result.size ≡ 1  -- Only Charlie
+
+test "Query: negation with no matches keeps all" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let (bob, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add alice (Attribute.mk ":person/name") (Value.string "Alice"),
+    .add bob (Attribute.mk ":person/name") (Value.string "Bob")
+    -- No one has :person/role
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
+  -- Find people who are NOT managers (everyone should match)
+  let query : Query := {
+    find := [⟨"name"⟩]
+    where_ := [
+      .pattern {
+        entity := .var ⟨"e"⟩
+        attr := .attr (Attribute.mk ":person/name")
+        value := .var ⟨"name"⟩
+      },
+      .not (.pattern {
+        entity := .var ⟨"e"⟩
+        attr := .attr (Attribute.mk ":person/role")
+        value := .value (Value.string "manager")
+      })
+    ]
+  }
+  let result := Query.execute query db
+  result.size ≡ 2  -- Both Alice and Bob
+
+test "Query: negation with all matches removes all" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let (bob, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add alice (Attribute.mk ":person/name") (Value.string "Alice"),
+    .add bob (Attribute.mk ":person/name") (Value.string "Bob"),
+    .add alice (Attribute.mk ":person/role") (Value.string "manager"),
+    .add bob (Attribute.mk ":person/role") (Value.string "manager")
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
+  -- Find people who are NOT managers (no one should match)
+  let query : Query := {
+    find := [⟨"name"⟩]
+    where_ := [
+      .pattern {
+        entity := .var ⟨"e"⟩
+        attr := .attr (Attribute.mk ":person/name")
+        value := .var ⟨"name"⟩
+      },
+      .not (.pattern {
+        entity := .var ⟨"e"⟩
+        attr := .attr (Attribute.mk ":person/role")
+        value := .value (Value.string "manager")
+      })
+    ]
+  }
+  let result := Query.execute query db
+  result.size ≡ 0  -- No one passes
+
+test "Query: negation with different attribute" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let (bob, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add alice (Attribute.mk ":person/name") (Value.string "Alice"),
+    .add alice (Attribute.mk ":person/active") (Value.bool true),
+    .add bob (Attribute.mk ":person/name") (Value.string "Bob"),
+    .add bob (Attribute.mk ":person/active") (Value.bool false)
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
+  -- Find people who are NOT active=false (Alice)
+  let query : Query := {
+    find := [⟨"name"⟩]
+    where_ := [
+      .pattern {
+        entity := .var ⟨"e"⟩
+        attr := .attr (Attribute.mk ":person/name")
+        value := .var ⟨"name"⟩
+      },
+      .not (.pattern {
+        entity := .var ⟨"e"⟩
+        attr := .attr (Attribute.mk ":person/active")
+        value := .value (Value.bool false)
+      })
+    ]
+  }
+  let result := Query.execute query db
+  result.size ≡ 1  -- Only Alice
+
 #generate_tests
 
 end Ledger.Tests.Query

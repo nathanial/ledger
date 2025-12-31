@@ -73,34 +73,43 @@ def executePatterns (patterns : List Pattern) (idx : Indexes) : Relation :=
           let candidates := IndexSelect.fetchCandidates pattern b idx
           (Unify.matchPattern pattern candidates b).bindings
 
-/-- Execute a clause against the database. -/
-def executeClause (clause : Clause) (idx : Indexes) : Relation :=
+/-- Execute a clause against the database, transforming an input relation.
+    Each clause type transforms the input bindings:
+    - pattern: joins input with matching datoms
+    - and: chains clauses sequentially
+    - or: unions results from each branch
+    - not: filters out bindings that match the inner clause -/
+def executeClause (clause : Clause) (input : Relation) (idx : Indexes) : Relation :=
   match clause with
-  | .pattern p => executePattern p Binding.empty idx
+  | .pattern p =>
+    -- For each input binding, find matching datoms and extend the binding
+    input.flatMap fun b =>
+      let candidates := IndexSelect.fetchCandidates p b idx
+      (Unify.matchPattern p candidates b).bindings
   | .and clauses =>
-    match clauses with
-    | [] => Relation.singleton Binding.empty
-    | [c] => executeClause c idx
-    | c :: cs =>
-      let first := executeClause c idx
-      cs.foldl (init := first) fun rel clause' =>
-        let clauseRel := executeClause clause' idx
-        Relation.join rel clauseRel
+    -- Chain clauses: output of one becomes input of next
+    clauses.foldl (init := input) fun rel clause' =>
+      executeClause clause' rel idx
   | .or clauses =>
-    let results := (clauses.map fun c => (executeClause c idx).bindings).flatten
+    -- Union: collect results from each branch with same input
+    let results := clauses.flatMap fun c =>
+      (executeClause c input idx).bindings
     ⟨results⟩
-  | .not _ =>
-    -- Negation requires full scan and exclusion
-    -- For now, simplified: returns empty (proper impl needs stratification)
-    Relation.empty
+  | .not innerClause =>
+    -- Negation-as-failure: keep bindings where inner clause produces no matches
+    input.filter fun b =>
+      let innerInput := Relation.singleton b
+      let innerResult := executeClause innerClause innerInput idx
+      innerResult.isEmpty
 
 /-- Execute a full query against the database. -/
 def execute (query : Query) (db : Db) : QueryResult :=
-  -- Extract all patterns from where clauses
-  let patterns := (query.where_.map Clause.patterns).flatten
+  -- Start with a singleton empty binding
+  let initial := Relation.singleton Binding.empty
 
-  -- Execute patterns with join optimization
-  let relation := executePatterns patterns db.indexes
+  -- Execute all where clauses, threading through the relation
+  let relation := query.where_.foldl (init := initial) fun rel clause =>
+    executeClause clause rel db.indexes
 
   -- Project to find variables and remove duplicates
   let projected := relation.project query.find |>.distinct
