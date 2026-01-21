@@ -5,7 +5,7 @@ package ledger where
   version := v!"0.1.0"
 
 require batteries from git "https://github.com/leanprover-community/batteries" @ "v4.26.0"
-require crucible from git "https://github.com/nathanial/crucible" @ "v0.0.7"
+require crucible from git "https://github.com/nathanial/crucible" @ "v0.0.8"
 require staple from git "https://github.com/nathanial/staple" @ "v0.0.2"
 
 @[default_target]
