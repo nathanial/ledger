@@ -389,6 +389,4 @@ test "db.get vs getOne with multiple values" := do
   let one := db.getOne card (Attribute.mk ":card/title")
   one ≡ some (Value.string "Magic Gun")
 
-#generate_tests
-
 end Ledger.Tests.Database

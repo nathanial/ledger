@@ -324,6 +324,4 @@ test "STRESS: entity with 500 values (extreme move pattern)" := do
   -- With O(n²) grouping, this should be noticeably slow
   ensure (elapsed < 30000) s!"Too slow: {elapsed}ms"
 
-#generate_tests
-
 end Ledger.Tests.Performance

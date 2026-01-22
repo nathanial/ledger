@@ -143,6 +143,4 @@ test "DSL: EntityBuilder score" := do
   let .ok (db, _) := eb.done.run db | throw <| IO.userError "EntityBuilder failed"
   DSL.attrInt db alice ":person/score" ≡ some 100
 
-#generate_tests
-
 end Ledger.Tests.DSL

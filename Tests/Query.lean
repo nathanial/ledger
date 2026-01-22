@@ -233,6 +233,4 @@ test "Query: negation with different attribute" := do
   let result := Query.execute query db
   result.size ≡ 1  -- Only Alice
 
-#generate_tests
-
 end Ledger.Tests.Query

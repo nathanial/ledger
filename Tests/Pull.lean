@@ -188,6 +188,4 @@ test "Pull: pullOne with multiple values" := do
   | some (.string title) => title ≡ "Magic Gun"
   | _ => throw <| IO.userError "Expected string value"
 
-#generate_tests
-
 end Ledger.Tests.Pull

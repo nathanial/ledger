@@ -118,6 +118,4 @@ test "Datom DecidableEq - different datoms" := do
   let d2 := Datom.assert e a (Value.int 43) t
   if d1 = d2 then throw <| IO.userError "Datoms should not be equal" else pure ()
 
-#generate_tests
-
 end Ledger.Tests.Core

@@ -148,6 +148,4 @@ test "Derive: retractionOps" := do
   -- Verify entity no longer exists
   ensure (TestPerson.pull db eid).isNone "Entity should be gone"
 
-#generate_tests
-
 end Ledger.Tests.Derive

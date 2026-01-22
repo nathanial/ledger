@@ -281,6 +281,4 @@ test "JSONL: File with many title changes" := do
   let title := conn.db.getOne card titleAttr
   title ≡ some (Value.string "Magic Gun")
 
-#generate_tests
-
 end Ledger.Tests.Persistence

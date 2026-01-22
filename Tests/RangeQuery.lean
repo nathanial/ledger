@@ -197,6 +197,4 @@ test "Range query with last entity in db" := do
   let datoms := db.indexes.eavt.datomsForEntity last
   datoms.length ≡ 1
 
-#generate_tests
-
 end Ledger.Tests.RangeQuery

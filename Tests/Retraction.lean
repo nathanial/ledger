@@ -564,6 +564,4 @@ test "History is sorted" := do
   let sortedIds := (txIds.toArray.qsort (· < ·)).toList
   ensure (txIds == sortedIds) "History should be sorted by tx"
 
-#generate_tests
-
 end Ledger.Tests.Retraction
