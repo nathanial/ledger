@@ -15,6 +15,7 @@ import Tests.Persistence
 import Tests.Derive
 import Tests.Performance
 import Tests.RangeQuery
+import Tests.Schema
 
 open Crucible
 

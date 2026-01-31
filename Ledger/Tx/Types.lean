@@ -41,6 +41,8 @@ inductive TxError where
   | invalidEntity (entity : EntityId)
   /-- Generic error with message. -/
   | custom (msg : String)
+  /-- Schema validation failed. -/
+  | schemaViolation (msg : String)
   deriving Repr, Inhabited
 
 namespace TxError
@@ -50,6 +52,7 @@ instance : ToString TxError where
     | .factNotFound e a v => s!"Fact not found: [{e} {a} {v}]"
     | .invalidEntity e => s!"Invalid entity: {e}"
     | .custom msg => msg
+    | .schemaViolation msg => s!"Schema violation: {msg}"
 
 end TxError
 

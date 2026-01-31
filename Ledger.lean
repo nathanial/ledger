@@ -17,6 +17,11 @@ import Ledger.Index.Manager
 -- Transaction types
 import Ledger.Tx.Types
 
+-- Schema types and validation
+import Ledger.Schema.Types
+import Ledger.Schema.Validation
+import Ledger.Schema.Install
+
 -- Database and time-travel
 import Ledger.Db.Database
 import Ledger.Db.TimeTravel
@@ -40,6 +45,7 @@ import Ledger.DSL.PullBuilder
 import Ledger.DSL.TxBuilder
 import Ledger.DSL.TxM
 import Ledger.DSL.Combinators
+import Ledger.DSL.SchemaBuilder
 
 -- Persistence
 import Ledger.Persist

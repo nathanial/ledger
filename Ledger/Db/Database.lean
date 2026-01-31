@@ -11,6 +11,8 @@ import Ledger.Core.Value
 import Ledger.Core.Datom
 import Ledger.Index.Manager
 import Ledger.Tx.Types
+import Ledger.Schema.Types
+import Ledger.Schema.Validation
 
 namespace Ledger
 
@@ -24,6 +26,8 @@ structure Db where
   indexes : Indexes
   /-- Next available entity ID for new entities. -/
   nextEntityId : EntityId
+  /-- Optional schema for validation (none = schema-free mode). -/
+  schemaConfig : Option SchemaConfig := none
   deriving Inhabited
 
 namespace Db
@@ -63,6 +67,12 @@ private def isFactAsserted (indexes : Indexes) (e : EntityId) (a : Attribute) (v
 /-- Process a transaction, producing a new database snapshot.
     This is a pure function - the original database is unchanged. -/
 def transact (db : Db) (tx : Transaction) (instant : Nat := 0) : Except TxError (Db × TxReport) := do
+  -- Schema validation (if schema is configured)
+  if let some config := db.schemaConfig then
+    match SchemaValidation.validateTransaction config db.indexes tx with
+    | .error schemaErr => throw (.schemaViolation (toString schemaErr))
+    | .ok () => pure ()
+
   let newTxId := db.basisT.next
 
   -- Convert transaction operations to datoms
@@ -209,6 +219,26 @@ def referencingViaAttr (db : Db) (target : EntityId) (a : Attribute) : List Enti
 /-- Get all datoms in the database. -/
 def datoms (db : Db) : List Datom :=
   db.indexes.allDatoms
+
+-- ============================================================
+-- Schema configuration
+-- ============================================================
+
+/-- Enable schema validation on this database. -/
+def withSchema (db : Db) (schema : Schema) (strict : Bool := false) : Db :=
+  { db with schemaConfig := some { schema := schema, strictMode := strict } }
+
+/-- Disable schema validation. -/
+def withoutSchema (db : Db) : Db :=
+  { db with schemaConfig := none }
+
+/-- Get the current schema (if any). -/
+def getSchema (db : Db) : Option Schema :=
+  db.schemaConfig.map (·.schema)
+
+/-- Check if schema validation is enabled. -/
+def hasSchema (db : Db) : Bool :=
+  db.schemaConfig.isSome
 
 end Db
 
