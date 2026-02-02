@@ -140,15 +140,31 @@ instance : Hashable Value where
     | .keyword k => hash k
     | .bytes b => hash b.data.toList
 
--- Convenience constructors
+/-- Create a Value from an Int. -/
 def ofInt (n : Int) : Value := .int n
+
+/-- Create a Value from a Nat (converted to Int). -/
 def ofNat (n : Nat) : Value := .int n
+
+/-- Create a Value from a Float. -/
 def ofFloat (f : Float) : Value := .float f
+
+/-- Create a Value from a String. -/
 def ofString (s : String) : Value := .string s
+
+/-- Create a Value from a Bool. -/
 def ofBool (b : Bool) : Value := .bool b
+
+/-- Create a Value from an instant (Unix timestamp in milliseconds). -/
 def ofInstant (t : Nat) : Value := .instant t
+
+/-- Create a Value from an EntityId reference. -/
 def ofRef (e : EntityId) : Value := .ref e
+
+/-- Create a Value from a keyword string. -/
 def ofKeyword (k : String) : Value := .keyword k
+
+/-- Create a Value from a ByteArray. -/
 def ofBytes (b : ByteArray) : Value := .bytes b
 
 /-- Check if this value is a reference to another entity. -/

@@ -144,18 +144,22 @@ structure ParseState where
   pos : Nat
   deriving Repr
 
+/-- Peek at the current character without advancing. -/
 def ParseState.peek (s : ParseState) : Option Char :=
   if s.pos < s.input.length then some s.input.data[s.pos]! else none
 
+/-- Advance the position by one character. -/
 def ParseState.advance (s : ParseState) : ParseState :=
   { s with pos := s.pos + 1 }
 
+/-- Skip whitespace characters (space, newline, carriage return, tab). -/
 def ParseState.skipWhitespace (s : ParseState) : ParseState := Id.run do
   let mut s := s
   while s.peek.map (fun c => c == ' ' || c == '\n' || c == '\r' || c == '\t') |>.getD false do
     s := s.advance
   return s
 
+/-- Expect a specific character and advance past it. Returns none if mismatch. -/
 def ParseState.expect (s : ParseState) (c : Char) : Option ParseState :=
   if s.peek == some c then some s.advance else none
 
@@ -179,7 +183,9 @@ def parseJsonInt (s : ParseState) : Option (Int × ParseState) := do
   let result : Int := if neg then -(n : Int) else n
   return (result, s)
 
-/-- Parse a JSON string (after opening quote), returns value and state after closing quote -/
+/-- Parse JSON string content after the opening quote.
+    Handles escape sequences (\\, \", \n, \r, \t, \uXXXX).
+    Returns the decoded string and state positioned after the closing quote. -/
 partial def parseJsonStringContent (s : ParseState) : Option (String × ParseState) :=
   go s ""
 where
