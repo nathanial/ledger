@@ -33,6 +33,7 @@ import Ledger.Query.Binding
 import Ledger.Query.Unify
 import Ledger.Query.IndexSelect
 import Ledger.Query.Executor
+import Ledger.Query.Aggregates
 
 -- Pull API
 import Ledger.Pull.Pattern

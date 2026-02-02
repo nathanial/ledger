@@ -122,6 +122,15 @@ def executeRaw (query : Query) (db : Db) : Relation :=
   let result := execute query db
   result.rows
 
+/-- Execute query clauses without projection or distinct.
+    Useful for aggregations where we need all matching bindings. -/
+def executeForAggregate (query : Query) (db : Db) : Relation :=
+  -- Start with a singleton empty binding
+  let initial := Relation.singleton Binding.empty
+  -- Execute all where clauses, threading through the relation
+  query.where_.foldl (init := initial) fun rel clause =>
+    executeClause clause rel db.indexes
+
 /-- Convenience: Execute a simple pattern query. -/
 def findPattern (pattern : Pattern) (findVars : List String) (db : Db) : QueryResult :=
   let query : Query := {
