@@ -41,6 +41,14 @@ def add (e : EntityId) (attr : Attribute) (v : Value) : TxM Unit :=
 def retract (e : EntityId) (attr : Attribute) (v : Value) : TxM Unit :=
   modify fun s => { s with ops := s.ops.push (.retract e attr v) }
 
+/-- Retract an entire entity (cascading component delete) -/
+def retractEntity (e : EntityId) : TxM Unit :=
+  modify fun s => { s with ops := s.ops.push (.retractEntity (.id e)) }
+
+/-- Retract an entity by lookup ref (attribute + value) -/
+def retractEntityLookup (attr : Attribute) (v : Value) : TxM Unit :=
+  modify fun s => { s with ops := s.ops.push (.retractEntity (.lookup attr v)) }
+
 /-- Get the database snapshot (for reading current values) -/
 def getDb : TxM Db := read
 
@@ -90,6 +98,14 @@ def retractBool (e : EntityId) (attr : Attribute) (v : Bool) : TxM Unit :=
 /-- Retract a reference -/
 def retractRef (e : EntityId) (attr : Attribute) (ref : EntityId) : TxM Unit :=
   retract e attr (.ref ref)
+
+/-- Retract an entity by lookup ref (string value). -/
+def retractEntityLookupStr (attr : Attribute) (v : String) : TxM Unit :=
+  retractEntityLookup attr (.string v)
+
+/-- Retract an entity by lookup ref (int value). -/
+def retractEntityLookupInt (attr : Attribute) (v : Int) : TxM Unit :=
+  retractEntityLookup attr (.int v)
 
 /-! ## Cardinality-One Helpers -/
 

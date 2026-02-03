@@ -134,6 +134,8 @@ structure AttributeSchema where
   unique : Option Unique := none
   /-- Whether to index in AVET for value lookups (default: false for non-unique). -/
   indexed : Bool := false
+  /-- Component ref (cascading delete); only meaningful for ref types. -/
+  component : Bool := false
   /-- Documentation string. -/
   doc : Option String := none
   deriving Repr, Inhabited
@@ -214,6 +216,7 @@ namespace SchemaAttr
   def cardinality : Attribute := ⟨":db/cardinality"⟩
   def unique : Attribute := ⟨":db/unique"⟩
   def indexed : Attribute := ⟨":db/index"⟩
+  def isComponent : Attribute := ⟨":db/isComponent"⟩
   def doc : Attribute := ⟨":db/doc"⟩
 end SchemaAttr
 

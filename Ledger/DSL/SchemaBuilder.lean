@@ -79,6 +79,13 @@ def indexed (sb : SchemaBuilder) : SchemaBuilder :=
   | last :: rest =>
     { sb with attrs := rest.reverse ++ [{ last with indexed := true }] }
 
+/-- Set the last attribute as a component ref (cascading delete). -/
+def component (sb : SchemaBuilder) : SchemaBuilder :=
+  match sb.attrs.reverse with
+  | [] => sb
+  | last :: rest =>
+    { sb with attrs := rest.reverse ++ [{ last with component := true }] }
+
 /-- Add documentation to the last attribute. -/
 def doc (sb : SchemaBuilder) (d : String) : SchemaBuilder :=
   match sb.attrs.reverse with

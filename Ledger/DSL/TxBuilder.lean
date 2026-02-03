@@ -70,6 +70,22 @@ def retractInt (tb : TxBuilder) (e : EntityId) (attr : String) (v : Int) : TxBui
 def retractRef (tb : TxBuilder) (e : EntityId) (attr : String) (ref : EntityId) : TxBuilder :=
   tb.retract e attr (.ref ref)
 
+/-- Retract an entire entity (cascading component delete). -/
+def retractEntity (tb : TxBuilder) (e : EntityId) : TxBuilder :=
+  { tb with ops := tb.ops ++ [.retractEntity (.id e)] }
+
+/-- Retract an entity by lookup ref (attribute + value). -/
+def retractEntityLookup (tb : TxBuilder) (attr : String) (v : Value) : TxBuilder :=
+  { tb with ops := tb.ops ++ [.retractEntity (.lookup (Attribute.mk attr) v)] }
+
+/-- Retract an entity by lookup ref (string value). -/
+def retractEntityLookupStr (tb : TxBuilder) (attr : String) (v : String) : TxBuilder :=
+  tb.retractEntityLookup attr (.string v)
+
+/-- Retract an entity by lookup ref (int value). -/
+def retractEntityLookupInt (tb : TxBuilder) (attr : String) (v : Int) : TxBuilder :=
+  tb.retractEntityLookup attr (.int v)
+
 /-- Build the transaction. -/
 def build (tb : TxBuilder) : Transaction := tb.ops
 

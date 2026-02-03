@@ -564,4 +564,73 @@ test "History is sorted" := do
   let sortedIds := (txIds.toArray.qsort (· < ·)).toList
   ensure (txIds == sortedIds) "History should be sorted by tx"
 
+/-! ## Entity Retraction Tests -/
+
+test "Retract entity removes own facts and inbound refs" := do
+  let conn := Connection.create
+  let (alice, conn) := conn.allocEntityId
+  let (bob, conn) := conn.allocEntityId
+  let tx1 : Transaction := [
+    .add alice (Attribute.mk ":person/name") (Value.string "Alice"),
+    .add alice (Attribute.mk ":person/tag") (Value.string "active"),
+    .add bob (Attribute.mk ":person/name") (Value.string "Bob"),
+    .add bob (Attribute.mk ":person/friend") (Value.ref alice)
+  ]
+  let .ok (conn, _) := conn.transact tx1 | throw <| IO.userError "Tx1 failed"
+  let tx2 : Transaction := [.retractEntity (.id alice)]
+  let .ok (conn, _) := conn.transact tx2 | throw <| IO.userError "Tx2 failed"
+  ensure (conn.db.getOne alice (Attribute.mk ":person/name")).isNone "Alice name should be removed"
+  ensure (conn.db.getOne alice (Attribute.mk ":person/tag")).isNone "Alice tag should be removed"
+  ensure (conn.db.getOne bob (Attribute.mk ":person/friend")).isNone "Inbound ref should be removed"
+  ensure (conn.db.getOne bob (Attribute.mk ":person/name")).isSome "Bob should remain"
+
+test "Retract entity cascades through component refs" := do
+  let schema := DSL.schema
+    |>.string ":person/name"
+    |>.ref ":person/address" |>.component
+    |>.string ":address/street"
+    |>.ref ":company/location"
+    |>.build
+  let db := Db.empty.withSchema schema
+  let (person, db) := db.allocEntityId
+  let (address, db) := db.allocEntityId
+  let (company, db) := db.allocEntityId
+  let tx1 : Transaction := [
+    .add person (Attribute.mk ":person/name") (Value.string "Alice"),
+    .add address (Attribute.mk ":address/street") (Value.string "Main"),
+    .add person (Attribute.mk ":person/address") (Value.ref address),
+    .add company (Attribute.mk ":company/location") (Value.ref address)
+  ]
+  let .ok (db, _) := db.transact tx1 | throw <| IO.userError "Tx1 failed"
+  let tx2 : Transaction := [.retractEntity (.id person)]
+  let .ok (db, _) := db.transact tx2 | throw <| IO.userError "Tx2 failed"
+  ensure (db.getOne person (Attribute.mk ":person/name")).isNone "Person should be removed"
+  ensure (db.getOne address (Attribute.mk ":address/street")).isNone "Component address should be removed"
+  ensure (db.getOne company (Attribute.mk ":company/location")).isNone "Inbound ref to component should be removed"
+
+test "Retract entity is a no-op when entity has no facts" := do
+  let db := Db.empty
+  let (eid, db) := db.allocEntityId
+  let tx : Transaction := [.retractEntity (.id eid)]
+  match db.transact tx with
+  | .ok (db', _) => db'.size ≡ 0
+  | .error err => throw <| IO.userError s!"Retract entity should not fail: {err}"
+
+test "Retract entity by lookup ref" := do
+  let schema := DSL.schema
+    |>.string ":person/email" |>.uniqueIdentity
+    |>.build
+  let db := Db.empty.withSchema schema
+  let (alice, db) := db.allocEntityId
+  let tx1 : Transaction := [
+    .add alice (Attribute.mk ":person/email") (Value.string "alice@example.com"),
+    .add alice (Attribute.mk ":person/name") (Value.string "Alice")
+  ]
+  let .ok (db, _) := db.transact tx1 | throw <| IO.userError "Tx1 failed"
+  let tx2 : Transaction := [
+    .retractEntity (.lookup (Attribute.mk ":person/email") (Value.string "alice@example.com"))
+  ]
+  let .ok (db, _) := db.transact tx2 | throw <| IO.userError "Tx2 failed"
+  ensure (db.getOne alice (Attribute.mk ":person/name")).isNone "Lookup ref should retract entity"
+
 end Ledger.Tests.Retraction

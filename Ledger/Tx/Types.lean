@@ -11,12 +11,32 @@ import Ledger.Core.Datom
 
 namespace Ledger
 
+/-- Reference to an entity, either by ID or lookup ref. -/
+inductive EntityRef where
+  | id (entity : EntityId)
+  | lookup (attr : Attribute) (value : Value)
+  deriving Repr, Inhabited
+
+namespace EntityRef
+
+def ofId (entity : EntityId) : EntityRef := .id entity
+def ofLookup (attr : Attribute) (value : Value) : EntityRef := .lookup attr value
+
+instance : ToString EntityRef where
+  toString ref := match ref with
+    | .id e => toString e
+    | .lookup a v => s!"[{a} {v}]"
+
+end EntityRef
+
 /-- A single operation in a transaction. -/
 inductive TxOp where
   /-- Assert a fact: the entity has this attribute with this value. -/
   | add (entity : EntityId) (attr : Attribute) (value : Value)
   /-- Retract a fact: remove this specific attribute-value from the entity. -/
   | retract (entity : EntityId) (attr : Attribute) (value : Value)
+  /-- Retract an entity (and its references), optionally via lookup ref. -/
+  | retractEntity (entity : EntityRef)
   deriving Repr, Inhabited
 
 namespace TxOp
@@ -25,6 +45,7 @@ instance : ToString TxOp where
   toString op := match op with
     | .add e a v => s!"[:db/add {e} {a} {v}]"
     | .retract e a v => s!"[:db/retract {e} {a} {v}]"
+    | .retractEntity e => s!"[:db/retractEntity {e}]"
 
 end TxOp
 

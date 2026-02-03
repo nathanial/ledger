@@ -30,9 +30,12 @@ def installOps (eid : EntityId) (attrSchema : AttributeSchema) : Transaction :=
   let withIndexed := if attrSchema.indexed
     then withUnique ++ [.add eid SchemaAttr.indexed (.bool true)]
     else withUnique
+  let withComponent := if attrSchema.component
+    then withIndexed ++ [.add eid SchemaAttr.isComponent (.bool true)]
+    else withIndexed
   let withDoc := match attrSchema.doc with
-    | some doc => withIndexed ++ [.add eid SchemaAttr.doc (.string doc)]
-    | none => withIndexed
+    | some doc => withComponent ++ [.add eid SchemaAttr.doc (.string doc)]
+    | none => withComponent
   withDoc
 
 /-- Generate transaction operations to install multiple attribute schemas. -/
@@ -58,6 +61,7 @@ def loadFromIndexes (indexes : Indexes) : Schema :=
     let cardinalityDatoms := indexes.datomsForEntityAttr eid SchemaAttr.cardinality
     let uniqueDatoms := indexes.datomsForEntityAttr eid SchemaAttr.unique
     let indexedDatoms := indexes.datomsForEntityAttr eid SchemaAttr.indexed
+    let componentDatoms := indexes.datomsForEntityAttr eid SchemaAttr.isComponent
     let docDatoms := indexes.datomsForEntityAttr eid SchemaAttr.doc
 
     -- Helper to get most recent value
@@ -74,6 +78,7 @@ def loadFromIndexes (indexes : Indexes) : Schema :=
     let cardinality := getLatestValue cardinalityDatoms
     let unique := getLatestValue uniqueDatoms
     let indexed := getLatestValue indexedDatoms
+    let component := getLatestValue componentDatoms
     let doc := getLatestValue docDatoms
 
     -- Parse and construct AttributeSchema
@@ -90,6 +95,9 @@ def loadFromIndexes (indexes : Indexes) : Schema :=
         let idx := match indexed with
           | some (.bool b) => b
           | _ => false
+        let comp := match component with
+          | some (.bool b) => b
+          | _ => false
         let docStr := match doc with
           | some (.string s) => some s
           | _ => none
@@ -100,6 +108,7 @@ def loadFromIndexes (indexes : Indexes) : Schema :=
           cardinality := card
           unique := uniq
           indexed := idx
+          component := comp
           doc := docStr
         }
         schema.insert attrSchema

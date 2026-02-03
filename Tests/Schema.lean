@@ -211,6 +211,15 @@ test "Schema builder unique identity" := do
     attrSchema.indexed ≡ true
   | none => throw <| IO.userError "Attribute not found"
 
+test "Schema builder component flag" := do
+  let schema := DSL.schema
+    |>.ref ":test/child" |>.component
+    |>.build
+  match schema.get? ⟨":test/child"⟩ with
+  | some attrSchema =>
+    attrSchema.component ≡ true
+  | none => throw <| IO.userError "Attribute not found"
+
 /-! ## Retraction Tests -/
 
 test "Retractions don't need schema validation" := do

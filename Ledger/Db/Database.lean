@@ -13,6 +13,7 @@ import Ledger.Index.Manager
 import Ledger.Tx.Types
 import Ledger.Schema.Types
 import Ledger.Schema.Validation
+import Ledger.Schema.Install
 
 namespace Ledger
 
@@ -59,6 +60,98 @@ private def applyCurrentFact (facts : Std.HashMap FactKey Datom) (d : Datom) :
   let key := FactKey.ofDatom d
   if d.added then facts.insert key d else facts.erase key
 
+/-- Set of entity IDs (using HashMap for membership). -/
+private abbrev EntitySet := Std.HashMap EntityId Unit
+
+/-- Set of fact keys (using HashMap for membership). -/
+private abbrev FactSet := Std.HashMap FactKey Unit
+
+/-- Choose schema for component resolution. Prefers configured schema, falls back to stored schema. -/
+private def schemaForComponents (db : Db) : Schema :=
+  match db.schemaConfig with
+  | some config => config.schema
+  | none => Schema.loadFromIndexes db.indexes
+
+/-- Check if an attribute is a component ref in the schema. -/
+private def isComponentAttr (schema : Schema) (attr : Attribute) : Bool :=
+  match schema.get? attr with
+  | some attrSchema => attrSchema.component && attrSchema.valueType == .ref
+  | none => false
+
+/-- Resolve a lookup ref to an entity ID. Errors if not unique or not found. -/
+private def resolveLookupRef (schema : Schema) (db : Db) (attr : Attribute) (value : Value)
+    : Except TxError EntityId := do
+  match schema.get? attr with
+  | none =>
+    throw (.custom s!"Lookup ref attribute not in schema: {attr}")
+  | some attrSchema =>
+    match attrSchema.unique with
+    | none =>
+      throw (.custom s!"Lookup ref attribute is not unique: {attr}")
+    | some _ =>
+      let candidates := db.indexes.entitiesWithAttrValue attr value
+      match candidates with
+      | [] => throw (.custom s!"Lookup ref not found: [{attr} {value}]")
+      | [e] => return e
+      | _ => throw (.custom s!"Lookup ref not unique: [{attr} {value}]")
+
+/-- Resolve an entity ref to an entity ID (or none for no-op). -/
+private def resolveEntityRef (schema : Schema) (db : Db) (eref : EntityRef) :
+    Except TxError (Option EntityId) := do
+  match eref with
+  | .id e => return some e
+  | .lookup attr value =>
+    let eid ← resolveLookupRef schema db attr value
+    return some eid
+
+/-- Collect all fact keys to retract for an entity (including inbound refs and component cascade). -/
+private partial def collectRetractFacts (db : Db) (schema : Schema) (entity : EntityId)
+    (visited : EntitySet) (facts : FactSet) : EntitySet × FactSet :=
+  if visited.contains entity then
+    (visited, facts)
+  else
+    let visited := visited.insert entity ()
+    let ownDatoms := db.indexes.datomsForEntity entity
+    let inboundDatoms := db.indexes.datomsReferencingEntity entity
+    let facts := (ownDatoms ++ inboundDatoms).foldl (init := facts) fun acc d =>
+      acc.insert (FactKey.ofDatom d) ()
+    let componentChildren := ownDatoms.filterMap fun d =>
+      match d.value with
+      | .ref child => if isComponentAttr schema d.attr then some child else none
+      | _ => none
+    componentChildren.foldl (init := (visited, facts)) fun (v, f) child =>
+      collectRetractFacts db schema child v f
+
+/-- Expand retractEntity operations into concrete retract operations. -/
+private def expandTransaction (db : Db) (tx : Transaction) : Except TxError Transaction := do
+  let schema := schemaForComponents db
+  let mut expanded : Transaction := []
+  let mut retracted : FactSet := {}
+
+  for op in tx do
+    match op with
+    | .add _ _ _ =>
+      expanded := expanded ++ [op]
+    | .retract entity attr value =>
+      let key := FactKey.of entity attr value
+      if !retracted.contains key then
+        retracted := retracted.insert key ()
+        expanded := expanded ++ [op]
+    | .retractEntity eref =>
+      let eid? ← resolveEntityRef schema db eref
+      match eid? with
+      | none => pure ()
+      | some eid =>
+        let oldFacts := retracted
+        let (_, retracted') := collectRetractFacts db schema eid {} retracted
+        let newKeys := retracted'.toList
+          |>.filter (fun (k, _) => !oldFacts.contains k)
+          |>.map (·.1)
+        expanded := expanded ++ newKeys.map (fun k => .retract k.entity k.attr k.value)
+        retracted := retracted'
+
+  return expanded
+
 /-- Build current fact map from a list of datoms (in transaction order). -/
 def currentFactsFromDatoms (datoms : List Datom) : Std.HashMap FactKey Datom :=
   datoms.foldl (init := {}) fun acc d => applyCurrentFact acc d
@@ -102,6 +195,7 @@ def transact (db : Db) (tx : Transaction) (instant : Nat := 0) : Except TxError 
     | .error schemaErr => throw (.schemaViolation (toString schemaErr))
     | .ok () => pure ()
 
+  let expandedTx ← expandTransaction db tx
   let newTxId := db.basisT.next
 
   -- Convert transaction operations to datoms
@@ -110,7 +204,7 @@ def transact (db : Db) (tx : Transaction) (instant : Nat := 0) : Except TxError 
   let mut historyIndexes := db.historyIndexes
   let mut currentFacts := db.currentFacts
 
-  for op in tx do
+  for op in expandedTx do
     match op with
     | .add entity attr value =>
       let datom := Datom.assert entity attr value newTxId
@@ -133,6 +227,9 @@ def transact (db : Db) (tx : Transaction) (instant : Nat := 0) : Except TxError 
       if let some prev := currentFacts[key]? then
         indexes := indexes.removeDatom prev
       currentFacts := currentFacts.erase key
+    | .retractEntity _ =>
+      -- Should have been expanded away
+      pure ()
 
   let db' : Db :=
     { db with
