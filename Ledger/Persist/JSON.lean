@@ -136,89 +136,14 @@ def escapeString (s : String) : String := Id.run do
       result := result.push c
   return result
 
-/-! ## Simple JSON Parser Helpers -/
+/-! ## JSON Parsing (via Staple.Json) -/
 
-/-- Parser state -/
-structure ParseState where
-  input : String
-  pos : Nat
-  deriving Repr
+open Staple.Json.Value
 
-/-- Peek at the current character without advancing. -/
-def ParseState.peek (s : ParseState) : Option Char :=
-  if s.pos < s.input.length then some s.input.data[s.pos]! else none
+private abbrev JValue := Staple.Json.Value
 
-/-- Advance the position by one character. -/
-def ParseState.advance (s : ParseState) : ParseState :=
-  { s with pos := s.pos + 1 }
-
-/-- Skip whitespace characters (space, newline, carriage return, tab). -/
-def ParseState.skipWhitespace (s : ParseState) : ParseState := Id.run do
-  let mut s := s
-  while s.peek.map (fun c => c == ' ' || c == '\n' || c == '\r' || c == '\t') |>.getD false do
-    s := s.advance
-  return s
-
-/-- Expect a specific character and advance past it. Returns none if mismatch. -/
-def ParseState.expect (s : ParseState) (c : Char) : Option ParseState :=
-  if s.peek == some c then some s.advance else none
-
-/-- Parse a JSON integer, returns value and new state -/
-def parseJsonInt (s : ParseState) : Option (Int × ParseState) := do
-  let s := s.skipWhitespace
-  let mut neg := false
-  let mut s := s
-  if s.peek == some '-' then
-    neg := true
-    s := s.advance
-
-  let mut n : Nat := 0
-  let mut foundDigit := false
-  while s.peek.map Char.isDigit |>.getD false do
-    foundDigit := true
-    n := n * 10 + (s.peek.get!.toNat - '0'.toNat)
-    s := s.advance
-
-  if !foundDigit then none
-  let result : Int := if neg then -(n : Int) else n
-  return (result, s)
-
-/-- Parse JSON string content after the opening quote.
-    Handles escape sequences (\\, \", \n, \r, \t, \uXXXX).
-    Returns the decoded string and state positioned after the closing quote. -/
-partial def parseJsonStringContent (s : ParseState) : Option (String × ParseState) :=
-  go s ""
-where
-  go (s : ParseState) (result : String) : Option (String × ParseState) :=
-    match s.peek with
-    | none => none
-    | some '"' => some (result, s.advance)
-    | some '\\' =>
-      let s := s.advance
-      match s.peek with
-      | some '"' => go s.advance (result.push '"')
-      | some '\\' => go s.advance (result.push '\\')
-      | some 'n' => go s.advance (result.push '\n')
-      | some 'r' => go s.advance (result.push '\r')
-      | some 't' => go s.advance (result.push '\t')
-      | some 'u' =>
-        let s := s.advance
-        -- Parse 4 hex digits
-        if s.pos + 4 <= s.input.length then
-          let hex := (s.input.drop s.pos).take 4
-          let s := { s with pos := s.pos + 4 }
-          match hex.toNat? with
-          | some n => go s (result.push (Char.ofNat n))
-          | none => none
-        else none
-      | _ => none
-    | some c => go s.advance (result.push c)
-
-/-- Parse a complete JSON string (including quotes) -/
-def parseJsonString (s : ParseState) : Option (String × ParseState) := do
-  let s := s.skipWhitespace
-  let s ← s.expect '"'
-  parseJsonStringContent s
+private def parseJsonValue (s : String) : Option JValue :=
+  Staple.Json.parse? s
 
 /-! ## Value Serialization -/
 
@@ -234,146 +159,41 @@ def valueToJson (v : Value) : String :=
   | .keyword k => jsonStr! { "t" : "keyword", "v" : k }
   | .bytes data => jsonStr! { "t" : "bytes", "v" : base64Encode data }
 
-/-- Skip over a JSON value (for parsing) -/
-def skipJsonValue (s : ParseState) : ParseState := Id.run do
-  let s := s.skipWhitespace
-  match s.peek with
-  | some '{' =>
-    let mut s := s.advance
-    let mut depth := 1
-    while depth > 0 do
-      match s.peek with
-      | some '{' => depth := depth + 1; s := s.advance
-      | some '}' => depth := depth - 1; s := s.advance
-      | some '"' =>
-        s := s.advance
-        while s.peek != some '"' do
-          if s.peek == some '\\' then s := s.advance.advance
-          else s := s.advance
-        s := s.advance
-      | some _ => s := s.advance
-      | none => break
-    return s
-  | some '"' =>
-    let mut s := s.advance
-    while s.peek != some '"' do
-      if s.peek == some '\\' then s := s.advance.advance
-      else s := s.advance
-    return s.advance
-  | some '[' =>
-    let mut s := s.advance
-    let mut depth := 1
-    while depth > 0 do
-      match s.peek with
-      | some '[' => depth := depth + 1; s := s.advance
-      | some ']' => depth := depth - 1; s := s.advance
-      | some '"' =>
-        s := s.advance
-        while s.peek != some '"' do
-          if s.peek == some '\\' then s := s.advance.advance
-          else s := s.advance
-        s := s.advance
-      | some _ => s := s.advance
-      | none => break
-    return s
-  | _ =>
-    -- Number, bool, null
-    let mut s := s
-    while s.peek.map (fun c => c != ',' && c != '}' && c != ']' && c != ' ' && c != '\n') |>.getD false do
-      s := s.advance
-    return s
-
-/-- Extract substring from input between two positions -/
-def extractSubstring (input : String) (start finish : Nat) : String :=
-  (input.drop start).take (finish - start)
-
-/-- Parse a float from string -/
-def parseFloat (str : String) : Option Float :=
-  -- Simple float parsing: try to parse as int first, handle decimal
-  let str := str.trim
-  if str.isEmpty then none
-  else
-    -- Check for decimal point
-    if str.any (· == '.') || str.any (· == 'e') || str.any (· == 'E') then
-      -- Use a simple approach: split on '.' and handle
-      let parts := str.splitOn "."
-      match parts with
-      | [intPart] =>
-        -- Scientific notation without decimal
-        intPart.toInt?.map (Float.ofInt ·)
-      | [intPart, fracPart] =>
-        let neg := intPart.startsWith "-"
-        let intPartClean := if neg then intPart.drop 1 else intPart
-        match intPartClean.toNat?, fracPart.takeWhile Char.isDigit |>.toNat? with
-        | some i, some f =>
-          let fracLen := (fracPart.takeWhile Char.isDigit).length
-          let divisor := (10 : Float) ^ fracLen.toFloat
-          let result := i.toFloat + f.toFloat / divisor
-          some (if neg then -result else result)
-        | _, _ => none
-      | _ => none
-    else
-      str.toInt?.map (Float.ofInt ·)
-
-/-- Deserialize a Value from JSON string -/
-def valueFromJson (s : String) : Option Value := do
-  let state : ParseState := { input := s, pos := 0 }
-  let state := state.skipWhitespace
-  let state ← state.expect '{'
-  let state := state.skipWhitespace
-
-  -- Parse "t":"<type>"
-  let state ← state.expect '"'
-  if state.peek != some 't' then none
-  let state := state.advance
-  let state ← state.expect '"'
-  let state := state.skipWhitespace
-  let state ← state.expect ':'
-  let (typeStr, state) ← parseJsonString state
-  let state := state.skipWhitespace
-  let state ← state.expect ','
-  let state := state.skipWhitespace
-
-  -- Parse "v":<value>
-  let state ← state.expect '"'
-  if state.peek != some 'v' then none
-  let state := state.advance
-  let state ← state.expect '"'
-  let state := state.skipWhitespace
-  let state ← state.expect ':'
-  let state := state.skipWhitespace
-
+private def valueFromJsonValue (v : JValue) : Option Value := do
+  let typeStr ← getStrField? "t" v
+  let raw ← getField? "v" v
   match typeStr with
   | "int" =>
-    let (n, _) ← parseJsonInt state
+    let n ← getInt? raw
     return .int n
   | "float" =>
-    let valueStart := state.pos
-    let state := skipJsonValue state
-    let valueStr := extractSubstring s valueStart state.pos
-    let f ← parseFloat valueStr
+    let f ← getFloat? raw
     return .float f
   | "string" =>
-    let (str, _) ← parseJsonString state
-    return .string str
+    let s ← getStr? raw
+    return .string s
   | "bool" =>
-    if state.peek == some 't' then return .bool true
-    if state.peek == some 'f' then return .bool false
-    none
+    let b ← getBool? raw
+    return .bool b
   | "instant" =>
-    let (n, _) ← parseJsonInt state
-    if n < 0 then none else return .instant n.toNat
+    let n ← getNat? raw
+    return .instant n
   | "ref" =>
-    let (n, _) ← parseJsonInt state
+    let n ← getInt? raw
     return .ref ⟨n⟩
   | "keyword" =>
-    let (k, _) ← parseJsonString state
+    let k ← getStr? raw
     return .keyword k
   | "bytes" =>
-    let (b64, _) ← parseJsonString state
+    let b64 ← getStr? raw
     let data ← base64Decode b64
     return .bytes data
   | _ => none
+
+/-- Deserialize a Value from JSON string -/
+def valueFromJson (s : String) : Option Value := do
+  let v ← parseJsonValue s
+  valueFromJsonValue v
 
 /-! ## Datom Serialization -/
 
@@ -386,51 +206,35 @@ def datomToJson (d : Datom) : String :=
   let added := d.added
   s!"[{e},\"{a}\",{v},{t},{added}]"
 
+private def datomFromJsonValue (v : JValue) : Option Datom := do
+  let arr ← getArr? v
+  if arr.size < 5 then
+    none
+  else
+    let entityVal ← arr[0]?
+    let attrVal ← arr[1]?
+    let valueVal ← arr[2]?
+    let txVal ← arr[3]?
+    let addedVal ← arr[4]?
+
+    let entityId ← getInt? entityVal
+    let attrName ← getStr? attrVal
+    let value ← valueFromJsonValue valueVal
+    let txId ← getNat? txVal
+    let added ← getBool? addedVal
+
+    return {
+      entity := ⟨entityId⟩
+      attr := ⟨attrName⟩
+      value := value
+      tx := ⟨txId⟩
+      added := added
+    }
+
 /-- Deserialize a Datom from JSON array string -/
 def datomFromJson (s : String) : Option Datom := do
-  let state : ParseState := { input := s, pos := 0 }
-  let state := state.skipWhitespace
-  let state ← state.expect '['
-  let state := state.skipWhitespace
-
-  -- Parse entity ID
-  let (entityId, state) ← parseJsonInt state
-  let state := state.skipWhitespace
-  let state ← state.expect ','
-
-  -- Parse attribute
-  let (attrName, state) ← parseJsonString state
-  let state := state.skipWhitespace
-  let state ← state.expect ','
-
-  -- Parse value (find the object boundaries)
-  let state := state.skipWhitespace
-  let valueStart := state.pos
-  let state := skipJsonValue state
-  let valueStr := extractSubstring s valueStart state.pos
-  let value ← valueFromJson valueStr
-  let state := state.skipWhitespace
-  let state ← state.expect ','
-
-  -- Parse tx ID
-  let (txId, state) ← parseJsonInt state
-  if txId < 0 then none
-  let state := state.skipWhitespace
-  let state ← state.expect ','
-
-  -- Parse added
-  let state := state.skipWhitespace
-  let added ← if state.peek == some 't' then some true
-              else if state.peek == some 'f' then some false
-              else none
-
-  return {
-    entity := ⟨entityId⟩
-    attr := ⟨attrName⟩
-    value := value
-    tx := ⟨txId.toNat⟩
-    added := added
-  }
+  let v ← parseJsonValue s
+  datomFromJsonValue v
 
 /-! ## TxLogEntry Serialization -/
 
@@ -442,68 +246,25 @@ def txLogEntryToJson (entry : TxLogEntry) : String := Id.run do
     datomsJson := datomsJson ++ datomToJson entry.datoms[i]!
   s!"\{\"txId\":{entry.txId.id},\"instant\":{entry.txInstant},\"datoms\":[{datomsJson}]}"
 
-/-- Deserialize a TxLogEntry from JSON string -/
-def txLogEntryFromJson (s : String) : Option TxLogEntry := do
-  let state : ParseState := { input := s, pos := 0 }
-  let state := state.skipWhitespace
-  let state ← state.expect '{'
-  let state := state.skipWhitespace
+private def txLogEntryFromJsonValue (v : JValue) : Option TxLogEntry := do
+  let txId ← getNatField? "txId" v
+  let instant ← getNatField? "instant" v
+  let datomVals ← getArrField? "datoms" v
 
-  let mut parsedTxId : Option Nat := none
-  let mut parsedInstant : Option Nat := none
-  let mut parsedDatoms : Option (Array Datom) := none
-  let mut state := state
-
-  while state.peek != some '}' && state.peek.isSome do
-    -- Parse key
-    let (key, state') ← parseJsonString state
-    state := state'.skipWhitespace
-    state ← state.expect ':'
-    state := state.skipWhitespace
-
-    match key with
-    | "txId" =>
-      let (n, state') ← parseJsonInt state
-      if n < 0 then none
-      parsedTxId := some n.toNat
-      state := state'
-    | "instant" =>
-      let (n, state') ← parseJsonInt state
-      if n < 0 then none
-      parsedInstant := some n.toNat
-      state := state'
-    | "datoms" =>
-      -- Parse array of datoms
-      state ← state.expect '['
-      state := state.skipWhitespace
-      let mut arr : Array Datom := #[]
-      while state.peek != some ']' do
-        let datomStart := state.pos
-        state := skipJsonValue state
-        let datomStr := extractSubstring s datomStart state.pos
-        let datom ← datomFromJson datomStr
-        arr := arr.push datom
-        state := state.skipWhitespace
-        if state.peek == some ',' then
-          state := state.advance.skipWhitespace
-      state := state.advance  -- skip ']'
-      parsedDatoms := some arr
-    | _ =>
-      -- Skip unknown field
-      state := skipJsonValue state
-
-    state := state.skipWhitespace
-    if state.peek == some ',' then
-      state := state.advance.skipWhitespace
-
-  let txId ← parsedTxId
-  let instant ← parsedInstant
-  let datoms ← parsedDatoms
+  let mut datoms : Array Datom := #[]
+  for datomVal in datomVals do
+    let datom ← datomFromJsonValue datomVal
+    datoms := datoms.push datom
 
   return {
     txId := ⟨txId⟩
     txInstant := instant
     datoms := datoms
   }
+
+/-- Deserialize a TxLogEntry from JSON string -/
+def txLogEntryFromJson (s : String) : Option TxLogEntry := do
+  let v ← parseJsonValue s
+  txLogEntryFromJsonValue v
 
 end Ledger.Persist.JSON
