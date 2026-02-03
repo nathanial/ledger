@@ -54,10 +54,23 @@ def replayJournal (path : System.FilePath) : IO Connection := do
     -- We need to update basisT and nextEntityId
     let newBasisT := entry.txId
 
-    -- Update indexes with all datoms
+    -- Update indexes (current + history)
     let mut indexes := conn.db.indexes
+    let mut historyIndexes := conn.db.historyIndexes
+    let mut currentFacts := conn.db.currentFacts
     for datom in entry.datoms do
-      indexes := indexes.insertDatom datom
+      historyIndexes := historyIndexes.insertDatom datom
+      if datom.added then
+        let key := FactKey.ofDatom datom
+        if let some prev := currentFacts[key]? then
+          indexes := indexes.removeDatom prev
+        indexes := indexes.insertDatom datom
+        currentFacts := currentFacts.insert key datom
+      else
+        let key := FactKey.ofDatom datom
+        if let some prev := currentFacts[key]? then
+          indexes := indexes.removeDatom prev
+        currentFacts := currentFacts.erase key
 
     -- Find max entity ID to update nextEntityId
     let mut maxEntityId := conn.db.nextEntityId.id
@@ -69,6 +82,8 @@ def replayJournal (path : System.FilePath) : IO Connection := do
     let db' : Db := {
       basisT := newBasisT
       indexes := indexes
+      historyIndexes := historyIndexes
+      currentFacts := currentFacts
       nextEntityId := ⟨maxEntityId + 1⟩
     }
 

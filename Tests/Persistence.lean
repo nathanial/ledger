@@ -137,6 +137,8 @@ test "JSONL: Direct datom insertion with multiple values" := do
   let db : Db := {
     basisT := TxId.mk 203
     indexes := indexes
+    historyIndexes := indexes
+    currentFacts := Db.currentFactsFromDatoms datoms.toList
     nextEntityId := EntityId.mk 194
   }
 
@@ -167,6 +169,8 @@ test "JSONL: Many values same entity-attribute" := do
   let db : Db := {
     basisT := TxId.mk 203
     indexes := indexes
+    historyIndexes := indexes
+    currentFacts := Db.currentFactsFromDatoms datoms.toList
     nextEntityId := EntityId.mk 194
   }
 
@@ -217,9 +221,12 @@ test "JSONL: Replay builds correct indexes" := do
     for datom in entry.datoms do
       indexes := indexes.insertDatom datom
 
+  let allDatoms := (entries.toList.map fun entry => entry.datoms.toList).flatten
   let db : Db := {
     basisT := TxId.mk 3
     indexes := indexes
+    historyIndexes := indexes
+    currentFacts := Db.currentFactsFromDatoms allDatoms
     nextEntityId := EntityId.mk 2
   }
 
@@ -271,11 +278,11 @@ test "JSONL: File with many title changes" := do
   -- Replay the journal
   let conn ← Persist.JSONL.replayJournal tempPath
 
-  -- Check datom count
+  -- Check datom count (current visible facts, duplicate assertions collapsed)
   let card := EntityId.mk 193
   let titleAttr := Attribute.mk ":card/title"
   let datoms := conn.db.indexes.datomsForEntityAttr card titleAttr
-  ensure (datoms.length == 8) s!"Expected 8 datoms, got {datoms.length}"
+  ensure (datoms.length == 6) s!"Expected 6 datoms, got {datoms.length}"
 
   -- Check that getOne returns "Magic Gun" (value with highest tx)
   let title := conn.db.getOne card titleAttr

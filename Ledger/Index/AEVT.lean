@@ -32,6 +32,10 @@ def keyOf (d : Datom) : AEVTKey :=
 def insertDatom (idx : AEVTIndex) (d : Datom) : AEVTIndex :=
   Batteries.RBMap.insert idx (keyOf d) d
 
+/-- Remove a datom from the index. -/
+def removeDatom (idx : AEVTIndex) (d : Datom) : AEVTIndex :=
+  Batteries.RBMap.erase idx (keyOf d)
+
 /-- Get all datoms for an attribute (range scan).
     Returns all entities that have this attribute.
     Uses early termination to avoid full index scan. -/

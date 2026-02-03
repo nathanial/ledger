@@ -2,7 +2,7 @@
 
 A Datomic-inspired fact-based database for Lean 4.
 
-Ledger implements an immutable, time-traveling database where all data is stored as facts (datoms). It supports Datalog-style queries, a Pull API for hierarchical entity retrieval, and four index types for efficient access patterns.
+Ledger implements an immutable, time-traveling database where all data is stored as facts (datoms). It supports Datalog-style queries, a Pull API for hierarchical entity retrieval, and four index types for efficient access patterns. Queries operate on the current visible facts; full history is preserved for time travel.
 
 ## Documentation
 
@@ -72,6 +72,8 @@ All data is stored as datoms - immutable 5-tuples:
 (entity, attribute, value, transaction, added)
 ```
 
+Retractions (`added = false`) remove a fact from the current view while preserving history.
+
 ### Four Indexes
 
 | Index | Order | Use Case |
@@ -98,6 +100,11 @@ let changes := conn.since txId
 -- Get full history of an entity
 let history := conn.entityHistory entityId
 ```
+
+### Current View vs History
+
+- **Current view**: All queries and indexes are built from visible facts only (retracted facts are removed).
+- **History**: Full transaction history is preserved for `asOf`, `since`, and entity history queries.
 
 ### Pull API
 

@@ -117,7 +117,7 @@ Every datom records which transaction created it, enabling time-travel queries.
 
 ## The Four Indexes
 
-Ledger maintains four indexes over all datoms, each optimized for different query patterns:
+Ledger maintains four indexes over **current visible facts** (assertions minus retractions), each optimized for different query patterns:
 
 ### EAVT (Entity-Attribute-Value-Transaction)
 
@@ -128,7 +128,7 @@ Key order: Entity → Attribute → Value → Transaction
 ```
 
 Operations:
-- `db.entity e` - Get all datoms for an entity
+- `db.entity e` - Get all current datoms for an entity
 - `db.get e attr` - Get values for an entity's attribute
 - `db.getOne e attr` - Get single value (most recent)
 
@@ -141,7 +141,7 @@ Key order: Attribute → Entity → Value → Transaction
 ```
 
 Operations:
-- `db.datomsWithAttr attr` - Get all datoms with attribute
+- `db.datomsWithAttr attr` - Get all current datoms with attribute
 - `db.entitiesWithAttr attr` - Get entities having attribute
 
 ### AVET (Attribute-Value-Entity-Transaction)
@@ -171,6 +171,16 @@ Operations:
 - `db.referencingDatoms target` - Get datoms referencing target
 - `db.referencingViaAttr target attr` - Get entities referencing via specific attribute
 
+## Current View and History
+
+Ledger keeps both:
+- **Current indexes** (`Db.indexes`): only visible facts.
+- **History indexes** (`Db.historyIndexes`): all datoms, including retractions.
+
+To make current updates fast, Ledger also maintains a `currentFacts` map keyed by
+`(entity, attribute, value)` so inserts/retractions can update the current indexes
+without range scans.
+
 ## Immutability Model
 
 ### Database as a Value
@@ -179,9 +189,11 @@ The `Db` type represents an immutable database snapshot:
 
 ```lean
 structure Db where
-  basisT : TxId           -- Most recent transaction
-  indexes : Indexes       -- All four indexes
-  nextEntityId : EntityId -- Next available entity ID
+  basisT : TxId                             -- Most recent transaction
+  indexes : Indexes                         -- Current visible facts
+  historyIndexes : Indexes                  -- Full history
+  currentFacts : Std.HashMap FactKey Datom  -- Current fact map
+  nextEntityId : EntityId                   -- Next available entity ID
 ```
 
 Transactions produce new database values:
@@ -280,8 +292,9 @@ inductive TxOp where
 Processing a transaction:
 1. Allocate a new `TxId`
 2. Convert each `TxOp` to a `Datom`
-3. Insert datoms into all four indexes
-4. Return new database and transaction report
+3. Insert datoms into `historyIndexes`
+4. Update `currentFacts` and current `indexes` (remove prior fact, insert newest)
+5. Return new database and transaction report
 
 ```lean
 let tx : Transaction := [

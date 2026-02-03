@@ -38,6 +38,14 @@ def insertDatom (idx : VAETIndex) (d : Datom) : VAETIndex :=
   else
     idx
 
+/-- Remove a datom from the index.
+    Only removes if the value is a reference. -/
+def removeDatom (idx : VAETIndex) (d : Datom) : VAETIndex :=
+  if d.value.isRef then
+    Batteries.RBMap.erase idx (keyOf d)
+  else
+    idx
+
 /-- Get all datoms that reference a specific entity.
     This is the primary use case for VAET - finding "who points to me".
     Uses early termination to avoid full index scan. -/

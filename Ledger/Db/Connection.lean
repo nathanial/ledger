@@ -84,9 +84,13 @@ def asOf (conn : Connection) (txId : TxId) : Db :=
 
   -- Rebuild indexes from visible datoms
   let indexes := visibleDatoms.foldl Indexes.insertDatom Indexes.empty
+  let historyIndexes := allDatoms.foldl Indexes.insertDatom Indexes.empty
+  let currentFacts := Db.currentFactsFromDatoms visibleDatoms
 
   { basisT := txId
   , indexes := indexes
+  , historyIndexes := historyIndexes
+  , currentFacts := currentFacts
   , nextEntityId := conn.db.nextEntityId }
 
 /-- Get all datoms that were asserted or retracted since a specific transaction.

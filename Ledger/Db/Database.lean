@@ -16,14 +16,35 @@ import Ledger.Schema.Validation
 
 namespace Ledger
 
+/-- Fact key for current fact map. -/
+structure FactKey where
+  entity : EntityId
+  attr : Attribute
+  value : Value
+  deriving Repr, BEq, Hashable, Inhabited
+
+namespace FactKey
+
+def of (e : EntityId) (a : Attribute) (v : Value) : FactKey :=
+  { entity := e, attr := a, value := v }
+
+def ofDatom (d : Datom) : FactKey :=
+  { entity := d.entity, attr := d.attr, value := d.value }
+
+end FactKey
+
 /-- Immutable database snapshot.
     Each Db value represents the state of the database at a specific point in time.
     Queries run against a Db always see a consistent view. -/
 structure Db where
   /-- The basis transaction - the most recent transaction in this snapshot. -/
   basisT : TxId
-  /-- All four indexes for efficient querying. -/
+  /-- All four indexes for efficient querying (current visible facts). -/
   indexes : Indexes
+  /-- Full history indexes (including retractions). -/
+  historyIndexes : Indexes := Indexes.empty
+  /-- Current visible facts keyed by (entity, attribute, value). -/
+  currentFacts : Std.HashMap FactKey Datom := {}
   /-- Next available entity ID for new entities. -/
   nextEntityId : EntityId
   /-- Optional schema for validation (none = schema-free mode). -/
@@ -32,10 +53,22 @@ structure Db where
 
 namespace Db
 
+/-- Apply a datom to the current fact map. -/
+private def applyCurrentFact (facts : Std.HashMap FactKey Datom) (d : Datom) :
+    Std.HashMap FactKey Datom :=
+  let key := FactKey.ofDatom d
+  if d.added then facts.insert key d else facts.erase key
+
+/-- Build current fact map from a list of datoms (in transaction order). -/
+def currentFactsFromDatoms (datoms : List Datom) : Std.HashMap FactKey Datom :=
+  datoms.foldl (init := {}) fun acc d => applyCurrentFact acc d
+
 /-- Create an empty database. -/
 def empty : Db :=
   { basisT := TxId.genesis
   , indexes := Indexes.empty
+  , historyIndexes := Indexes.empty
+  , currentFacts := {}
   , nextEntityId := ⟨1⟩ }
 
 /-- Get the number of datoms in the database. -/
@@ -56,13 +89,9 @@ def allocEntityIds (db : Db) (n : Nat) : List EntityId × Db :=
 
 /-- Check if a specific fact is currently asserted (not retracted).
     Used to validate retractions. -/
-private def isFactAsserted (indexes : Indexes) (e : EntityId) (a : Attribute) (v : Value) : Bool :=
-  let datoms := indexes.datomsForEntityAttr e a |>.filter (·.value == v)
-  match datoms.foldl (fun acc d => match acc with
-    | none => some d
-    | some prev => if d.tx.id > prev.tx.id then some d else acc) none with
-  | some latest => latest.added
-  | none => false
+private def isFactAsserted (facts : Std.HashMap FactKey Datom)
+    (e : EntityId) (a : Attribute) (v : Value) : Bool :=
+  facts.contains (FactKey.of e a v)
 
 /-- Process a transaction, producing a new database snapshot.
     This is a pure function - the original database is unchanged. -/
@@ -78,26 +107,39 @@ def transact (db : Db) (tx : Transaction) (instant : Nat := 0) : Except TxError 
   -- Convert transaction operations to datoms
   let mut datoms : Array Datom := #[]
   let mut indexes := db.indexes
+  let mut historyIndexes := db.historyIndexes
+  let mut currentFacts := db.currentFacts
 
   for op in tx do
     match op with
     | .add entity attr value =>
       let datom := Datom.assert entity attr value newTxId
       datoms := datoms.push datom
+      historyIndexes := historyIndexes.insertDatom datom
+      let key := FactKey.of entity attr value
+      if let some prev := currentFacts[key]? then
+        indexes := indexes.removeDatom prev
       indexes := indexes.insertDatom datom
+      currentFacts := currentFacts.insert key datom
 
     | .retract entity attr value =>
       -- Validate that the fact exists in the pre-transaction state
-      if !isFactAsserted db.indexes entity attr value then
+      if !isFactAsserted currentFacts entity attr value then
         throw (.factNotFound entity attr value)
       let datom := Datom.retract entity attr value newTxId
       datoms := datoms.push datom
-      indexes := indexes.insertDatom datom
+      historyIndexes := historyIndexes.insertDatom datom
+      let key := FactKey.of entity attr value
+      if let some prev := currentFacts[key]? then
+        indexes := indexes.removeDatom prev
+      currentFacts := currentFacts.erase key
 
   let db' : Db :=
     { db with
       basisT := newTxId
-      indexes := indexes }
+      indexes := indexes
+      historyIndexes := historyIndexes
+      currentFacts := currentFacts }
 
   let report : TxReport :=
     { txId := newTxId

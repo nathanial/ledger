@@ -63,12 +63,20 @@ def minForEntity (e : EntityId) : EAVTKey :=
 def minForEntityAttr (e : EntityId) (a : Attribute) : EAVTKey :=
   { entity := e, attr := a, value := minValue, tx := minTx }
 
+/-- Create minimum key for entity+attr+value range query. -/
+def minForEntityAttrValue (e : EntityId) (a : Attribute) (v : Value) : EAVTKey :=
+  { entity := e, attr := a, value := v, tx := minTx }
+
 /-- Check if key matches entity. -/
 def matchesEntity (e : EntityId) (k : EAVTKey) : Bool := k.entity == e
 
 /-- Check if key matches entity and attribute. -/
 def matchesEntityAttr (e : EntityId) (a : Attribute) (k : EAVTKey) : Bool :=
   k.entity == e && k.attr == a
+
+/-- Check if key matches entity, attribute, and value. -/
+def matchesEntityAttrValue (e : EntityId) (a : Attribute) (v : Value) (k : EAVTKey) : Bool :=
+  k.entity == e && k.attr == a && k.value == v
 
 end EAVTKey
 

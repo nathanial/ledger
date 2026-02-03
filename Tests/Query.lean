@@ -233,4 +233,293 @@ test "Query: negation with different attribute" := do
   let result := Query.execute query db
   result.size ≡ 1  -- Only Alice
 
+/-! ## AND / OR / BLANK / DUPLICATE Coverage -/
+
+test "Query: and clause chains patterns" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let (bob, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add alice (Attribute.mk ":person/name") (Value.string "Alice"),
+    .add alice (Attribute.mk ":person/age") (Value.int 30),
+    .add bob (Attribute.mk ":person/name") (Value.string "Bob"),
+    .add bob (Attribute.mk ":person/age") (Value.int 25)
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
+  let query : Query := {
+    find := [⟨"name"⟩]
+    where_ := [
+      .and [
+        .pattern {
+          entity := .var ⟨"e"⟩
+          attr := .attr (Attribute.mk ":person/age")
+          value := .value (Value.int 30)
+        },
+        .pattern {
+          entity := .var ⟨"e"⟩
+          attr := .attr (Attribute.mk ":person/name")
+          value := .var ⟨"name"⟩
+        }
+      ]
+    ]
+  }
+  let result := Query.execute query db
+  result.size ≡ 1
+
+test "Query: or clause unions branches" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let (bob, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add alice (Attribute.mk ":person/name") (Value.string "Alice"),
+    .add bob (Attribute.mk ":person/nickname") (Value.string "Bobby")
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
+  let query : Query := {
+    find := [⟨"name"⟩]
+    where_ := [
+      .or [
+        .pattern {
+          entity := .var ⟨"e"⟩
+          attr := .attr (Attribute.mk ":person/name")
+          value := .var ⟨"name"⟩
+        },
+        .pattern {
+          entity := .var ⟨"e"⟩
+          attr := .attr (Attribute.mk ":person/nickname")
+          value := .var ⟨"name"⟩
+        }
+      ]
+    ]
+  }
+  let result := Query.execute query db
+  result.size ≡ 2
+
+test "Query: nested or/and clauses" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let (bob, db) := db.allocEntityId
+  let (charlie, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add alice (Attribute.mk ":person/name") (Value.string "Alice"),
+    .add alice (Attribute.mk ":person/age") (Value.int 30),
+    .add alice (Attribute.mk ":person/dept") (Value.string "Engineering"),
+    .add bob (Attribute.mk ":person/name") (Value.string "Bob"),
+    .add bob (Attribute.mk ":person/age") (Value.int 25),
+    .add bob (Attribute.mk ":person/dept") (Value.string "Sales"),
+    .add charlie (Attribute.mk ":person/name") (Value.string "Charlie"),
+    .add charlie (Attribute.mk ":person/age") (Value.int 30),
+    .add charlie (Attribute.mk ":person/dept") (Value.string "Sales")
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
+  let query : Query := {
+    find := [⟨"name"⟩]
+    where_ := [
+      .or [
+        .and [
+          .pattern {
+            entity := .var ⟨"e"⟩
+            attr := .attr (Attribute.mk ":person/age")
+            value := .value (Value.int 30)
+          },
+          .pattern {
+            entity := .var ⟨"e"⟩
+            attr := .attr (Attribute.mk ":person/dept")
+            value := .value (Value.string "Engineering")
+          },
+          .pattern {
+            entity := .var ⟨"e"⟩
+            attr := .attr (Attribute.mk ":person/name")
+            value := .var ⟨"name"⟩
+          }
+        ],
+        .and [
+          .pattern {
+            entity := .var ⟨"e"⟩
+            attr := .attr (Attribute.mk ":person/age")
+            value := .value (Value.int 25)
+          },
+          .pattern {
+            entity := .var ⟨"e"⟩
+            attr := .attr (Attribute.mk ":person/dept")
+            value := .value (Value.string "Sales")
+          },
+          .pattern {
+            entity := .var ⟨"e"⟩
+            attr := .attr (Attribute.mk ":person/name")
+            value := .var ⟨"name"⟩
+          }
+        ]
+      ]
+    ]
+  }
+  let result := Query.execute query db
+  result.size ≡ 2  -- Alice and Bob
+
+test "Query: blank term matches without binding" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add alice (Attribute.mk ":person/tag") (Value.string "one"),
+    .add alice (Attribute.mk ":person/tag") (Value.string "two")
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
+  let query : Query := {
+    find := [⟨"e"⟩]
+    where_ := [
+      .pattern {
+        entity := .var ⟨"e"⟩
+        attr := .attr (Attribute.mk ":person/tag")
+        value := .blank
+      }
+    ]
+  }
+  let result := Query.execute query db
+  result.size ≡ 1
+
+test "Query: repeated variable in single pattern" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let (bob, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add alice (Attribute.mk ":person/friend") (Value.ref alice),
+    .add bob (Attribute.mk ":person/friend") (Value.ref alice)
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
+  let query : Query := {
+    find := [⟨"e"⟩]
+    where_ := [
+      .pattern {
+        entity := .var ⟨"e"⟩
+        attr := .attr (Attribute.mk ":person/friend")
+        value := .var ⟨"e"⟩
+      }
+    ]
+  }
+  let result := Query.execute query db
+  result.size ≡ 1
+
+test "Query: attribute variables bind and return attrs" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add alice (Attribute.mk ":person/name") (Value.string "Alice"),
+    .add alice (Attribute.mk ":person/age") (Value.int 30)
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
+  let query : Query := {
+    find := [⟨"a"⟩, ⟨"v"⟩]
+    where_ := [
+      .pattern {
+        entity := .entity alice
+        attr := .var ⟨"a"⟩
+        value := .var ⟨"v"⟩
+      }
+    ]
+  }
+  let result := Query.execute query db
+  result.size ≡ 2
+  let hasName := result.rows.bindings.any fun b =>
+    match b.lookup ⟨"a"⟩, b.lookup ⟨"v"⟩ with
+    | some (.attr a), some (.value (.string "Alice")) => a.name == ":person/name"
+    | _, _ => false
+  let hasAge := result.rows.bindings.any fun b =>
+    match b.lookup ⟨"a"⟩, b.lookup ⟨"v"⟩ with
+    | some (.attr a), some (.value (.int 30)) => a.name == ":person/age"
+    | _, _ => false
+  ensure hasName "Expected name attribute binding"
+  ensure hasAge "Expected age attribute binding"
+
+test "Query: value term entity matches refs" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let (bob, db) := db.allocEntityId
+  let (charlie, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add alice (Attribute.mk ":person/friend") (Value.ref bob),
+    .add charlie (Attribute.mk ":person/friend") (Value.ref alice)
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
+  let pattern : Pattern := {
+    entity := .var ⟨"e"⟩
+    attr := .attr (Attribute.mk ":person/friend")
+    value := .entity bob
+  }
+  let result := Query.findEntities pattern db
+  result.length ≡ 1
+
+test "Query: projection distinct removes duplicates" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let (bob, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add alice (Attribute.mk ":person/name") (Value.string "Sam"),
+    .add bob (Attribute.mk ":person/name") (Value.string "Sam")
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
+  let query : Query := {
+    find := [⟨"name"⟩]
+    where_ := [
+      .pattern {
+        entity := .var ⟨"e"⟩
+        attr := .attr (Attribute.mk ":person/name")
+        value := .var ⟨"name"⟩
+      }
+    ]
+  }
+  let result := Query.execute query db
+  result.size ≡ 1
+
+test "Query: or branch duplicates are distinct" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add alice (Attribute.mk ":person/name") (Value.string "Sam"),
+    .add alice (Attribute.mk ":person/nickname") (Value.string "Sam")
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
+  let query : Query := {
+    find := [⟨"name"⟩]
+    where_ := [
+      .or [
+        .pattern {
+          entity := .var ⟨"e"⟩
+          attr := .attr (Attribute.mk ":person/name")
+          value := .var ⟨"name"⟩
+        },
+        .pattern {
+          entity := .var ⟨"e"⟩
+          attr := .attr (Attribute.mk ":person/nickname")
+          value := .var ⟨"name"⟩
+        }
+      ]
+    ]
+  }
+  let result := Query.execute query db
+  result.size ≡ 1
+
+test "Query: retracted values are not returned" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let tx1 : Transaction := [
+    .add alice (Attribute.mk ":person/status") (Value.string "active")
+  ]
+  let .ok (db, _) := db.transact tx1 | throw <| IO.userError "Tx1 failed"
+  let tx2 : Transaction := [
+    .retract alice (Attribute.mk ":person/status") (Value.string "active")
+  ]
+  let .ok (db, _) := db.transact tx2 | throw <| IO.userError "Tx2 failed"
+  let query : Query := {
+    find := [⟨"status"⟩]
+    where_ := [
+      .pattern {
+        entity := .entity alice
+        attr := .attr (Attribute.mk ":person/status")
+        value := .var ⟨"status"⟩
+      }
+    ]
+  }
+  let result := Query.execute query db
+  result.size ≡ 0
+
 end Ledger.Tests.Query

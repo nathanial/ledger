@@ -33,6 +33,10 @@ def keyOf (d : Datom) : AVETKey :=
 def insertDatom (idx : AVETIndex) (d : Datom) : AVETIndex :=
   Batteries.RBMap.insert idx (keyOf d) d
 
+/-- Remove a datom from the index. -/
+def removeDatom (idx : AVETIndex) (d : Datom) : AVETIndex :=
+  Batteries.RBMap.erase idx (keyOf d)
+
 /-- Get all datoms for an attribute and value (range scan).
     Useful for finding entities with a specific attribute value.
     Only returns assertions (added = true), not retractions.

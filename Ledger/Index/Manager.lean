@@ -40,9 +40,20 @@ def insertDatom (idx : Indexes) (d : Datom) : Indexes :=
   , avet := idx.avet.insertDatom d
   , vaet := idx.vaet.insertDatom d }
 
+/-- Remove a datom from all indexes atomically. -/
+def removeDatom (idx : Indexes) (d : Datom) : Indexes :=
+  { eavt := idx.eavt.removeDatom d
+  , aevt := idx.aevt.removeDatom d
+  , avet := idx.avet.removeDatom d
+  , vaet := idx.vaet.removeDatom d }
+
 /-- Insert multiple datoms into all indexes. -/
 def insertDatoms (idx : Indexes) (ds : List Datom) : Indexes :=
   ds.foldl insertDatom idx
+
+/-- Remove multiple datoms from all indexes. -/
+def removeDatoms (idx : Indexes) (ds : List Datom) : Indexes :=
+  ds.foldl removeDatom idx
 
 /-- Count of datoms (from EAVT, which contains all datoms). -/
 def count (idx : Indexes) : Nat :=
@@ -63,6 +74,14 @@ def datomsForEntity (e : EntityId) (idx : Indexes) : List Datom :=
 /-- Get all datoms for an entity and attribute. -/
 def datomsForEntityAttr (e : EntityId) (a : Attribute) (idx : Indexes) : List Datom :=
   idx.eavt.datomsForEntityAttr e a
+
+/-- Get all datoms for an entity, attribute, and value. -/
+def datomsForEntityAttrValue (e : EntityId) (a : Attribute) (v : Value) (idx : Indexes) : List Datom :=
+  idx.eavt.datomsForEntityAttrValue e a v
+
+/-- Remove all datoms for a specific fact (entity, attribute, value). -/
+def removeFact (e : EntityId) (a : Attribute) (v : Value) (idx : Indexes) : Indexes :=
+  removeDatoms idx (datomsForEntityAttrValue e a v idx)
 
 /-- Get values for an entity's attribute. -/
 def valuesForEntityAttr (e : EntityId) (a : Attribute) (idx : Indexes) : List Value :=
