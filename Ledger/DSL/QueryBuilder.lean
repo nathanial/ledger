@@ -24,6 +24,8 @@ structure QueryBuilder where
   findVars : List Var := []
   patterns : List Pattern := []
   predicates : List Query.Predicate := []
+  ruleCalls : List RuleCall := []
+  rules : List RuleDef := []
   groupVars : List Var := []
   aggregates : List AggregateSpec := []
   deriving Repr, Inhabited
@@ -90,6 +92,15 @@ def whereRef (qb : QueryBuilder) (eVar : String) (attr : String) (ref : EntityId
 def wherePred (qb : QueryBuilder) (pred : Query.Predicate) : QueryBuilder :=
   { qb with predicates := qb.predicates ++ [pred] }
 
+/-- Add a rule call clause to the query. -/
+def whereRule (qb : QueryBuilder) (name : String) (args : List Term) : QueryBuilder :=
+  let call : RuleCall := { name := name, args := args }
+  { qb with ruleCalls := qb.ruleCalls ++ [call] }
+
+/-- Add a rule definition. -/
+def addRule (qb : QueryBuilder) (rule : RuleDef) : QueryBuilder :=
+  { qb with rules := qb.rules ++ [rule] }
+
 /-- Add a group-by variable. -/
 def groupBy (qb : QueryBuilder) (varName : String) : QueryBuilder :=
   { qb with groupVars := qb.groupVars ++ [⟨varName⟩] }
@@ -129,9 +140,12 @@ def hasAggregates (qb : QueryBuilder) : Bool :=
 /-- Build the query. -/
 def build (qb : QueryBuilder) : Query :=
   let clauses : List Clause :=
-    qb.patterns.map Clause.pattern ++ qb.predicates.map Clause.predicate
+    qb.patterns.map Clause.pattern
+      ++ qb.predicates.map Clause.predicate
+      ++ qb.ruleCalls.map Clause.rule
   { find := qb.findVars
-  , where_ := clauses }
+  , where_ := clauses
+  , rules := qb.rules }
 
 /-- Build and execute the query. -/
 def run (qb : QueryBuilder) (db : Db) : Query.QueryResult :=

@@ -34,6 +34,7 @@ import Ledger.Query.Unify
 import Ledger.Query.IndexSelect
 import Ledger.Query.Executor
 import Ledger.Query.Aggregates
+import Ledger.Query.Rules
 
 -- Pull API
 import Ledger.Pull.Pattern

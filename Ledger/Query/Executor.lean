@@ -5,6 +5,7 @@
   Executes Datalog queries against the database, producing result relations.
 -/
 
+import Std.Data.HashMap
 import Ledger.Core.Datom
 import Ledger.Index.Manager
 import Ledger.Db.Database
@@ -14,6 +15,7 @@ import Ledger.Query.Unify
 import Ledger.Query.Predicate
 import Ledger.Query.PredicateEval
 import Ledger.Query.IndexSelect
+import Ledger.Query.Rules
 
 namespace Ledger
 
@@ -81,7 +83,56 @@ def executePatterns (patterns : List Pattern) (idx : Indexes) : Relation :=
     - and: chains clauses sequentially
     - or: unions results from each branch
     - not: filters out bindings that match the inner clause -/
-def executeClause (clause : Clause) (input : Relation) (idx : Indexes) : Relation :=
+private def boundValueCompatible (a b : BoundValue) : Bool :=
+  if a == b then true
+  else
+    match a.asEntity?, b.asEntity? with
+    | some e1, some e2 => e1 == e2
+    | _, _ =>
+      match a.asValue?, b.asValue? with
+      | some v1, some v2 => v1 == v2
+      | _, _ => false
+
+private def unifyTermWithValue (term : Term) (val : BoundValue) (b : Binding) : Option Binding :=
+  match term with
+  | .blank => some b
+  | .entity e =>
+    match val.asEntity? with
+    | some e' => if e == e' then some b else none
+    | none => none
+  | .attr a =>
+    match val with
+    | .attr a' => if a == a' then some b else none
+    | _ => none
+  | .value v =>
+    match val.asValue? with
+    | some v' => if v == v' then some b else none
+    | none => none
+  | .var v =>
+    match b.lookup v with
+    | none => some (b.bind v val)
+    | some existing => if boundValueCompatible existing val then some b else none
+
+private def bindingValues (params : List Var) (b : Binding) : Option (List BoundValue) :=
+  params.mapM fun v => b.lookup v
+
+private def bindingFromValues (params : List Var) (values : List BoundValue) : Binding :=
+  ⟨params.zip values⟩
+
+private def executeRuleCall (call : RuleCall) (input : Relation) (rules : RuleEnv) : Relation :=
+  let key := RuleKey.ofName call.name call.arity
+  match rules.get? key with
+  | none => Relation.empty
+  | some table =>
+    input.flatMap fun b =>
+      table.relation.bindings.filterMap fun rb =>
+        match bindingValues table.params rb with
+        | none => none
+        | some vals =>
+          let pairs := call.args.zip vals
+          pairs.foldlM (init := b) (fun acc (arg, val) => unifyTermWithValue arg val acc)
+
+def executeClause (clause : Clause) (input : Relation) (idx : Indexes) (rules : RuleEnv) : Relation :=
   match clause with
   | .pattern p =>
     -- For each input binding, find matching datoms and extend the binding
@@ -90,30 +141,87 @@ def executeClause (clause : Clause) (input : Relation) (idx : Indexes) : Relatio
       (Unify.matchPattern p candidates b).bindings
   | .predicate p =>
     input.filter fun b => Predicate.eval p b
+  | .rule call =>
+    executeRuleCall call input rules
   | .and clauses =>
     -- Chain clauses: output of one becomes input of next
     clauses.foldl (init := input) fun rel clause' =>
-      executeClause clause' rel idx
+      executeClause clause' rel idx rules
   | .or clauses =>
     -- Union: collect results from each branch with same input
     let results := clauses.flatMap fun c =>
-      (executeClause c input idx).bindings
+      (executeClause c input idx rules).bindings
     ⟨results⟩
   | .not innerClause =>
     -- Negation-as-failure: keep bindings where inner clause produces no matches
     input.filter fun b =>
       let innerInput := Relation.singleton b
-      let innerResult := executeClause innerClause innerInput idx
+      let innerResult := executeClause innerClause innerInput idx rules
       innerResult.isEmpty
+
+private def projectBindingOrdered (params : List Var) (b : Binding) : Option Binding :=
+  let entries? := params.mapM fun v =>
+    b.lookup v |>.map fun val => (v, val)
+  entries?.map (fun entries => ⟨entries⟩)
+
+private def normalizeRelation (fromParams toParams : List Var) (rel : Relation) : Relation :=
+  let bindings := rel.bindings.filterMap fun b =>
+    match bindingValues fromParams b with
+    | some vals => some (bindingFromValues toParams vals)
+    | none => none
+  Relation.distinct ⟨bindings⟩
+
+private def executeRuleDef (rule : RuleDef) (idx : Indexes) (rules : RuleEnv) : Relation :=
+  let initial := Relation.singleton Binding.empty
+  let rel := rule.body.foldl (init := initial) fun acc clause =>
+    executeClause clause acc idx rules
+  let projected := rel.bindings.filterMap (projectBindingOrdered rule.params)
+  Relation.distinct ⟨projected⟩
+
+private def buildRuleEnv (ruleDefs : List RuleDef) (idx : Indexes) : RuleEnv := Id.run do
+  if ruleDefs.isEmpty then
+    return RuleEnv.empty
+
+  let mut groups : Std.HashMap RuleKey (List RuleDef) := {}
+  for rule in ruleDefs do
+    let key := RuleKey.ofName rule.name rule.arity
+    let existing := match groups[key]? with
+      | some defs => defs
+      | none => []
+    groups := groups.insert key (rule :: existing)
+
+  let mut env : RuleEnv := {}
+  for (key, _) in groups.toList do
+    let params := RuleKey.canonicalParams key
+    env := env.insert key { params := params, relation := Relation.empty }
+
+  let mut changed := true
+  while changed do
+    changed := false
+    for (key, defs) in groups.toList do
+      let table := match env[key]? with
+        | some t => t
+        | none => { params := RuleKey.canonicalParams key, relation := Relation.empty }
+      let mut merged := table.relation
+      for defn in defs do
+        let rel := executeRuleDef defn idx env
+        let normalized := normalizeRelation defn.params table.params rel
+        merged := Relation.distinct ⟨merged.bindings ++ normalized.bindings⟩
+      if merged.size > table.relation.size then
+        changed := true
+      env := env.insert key { table with relation := merged }
+
+  return env
 
 /-- Execute a full query against the database. -/
 def execute (query : Query) (db : Db) : QueryResult :=
   -- Start with a singleton empty binding
   let initial := Relation.singleton Binding.empty
+  let ruleEnv := buildRuleEnv query.rules db.indexes
 
   -- Execute all where clauses, threading through the relation
   let relation := query.where_.foldl (init := initial) fun rel clause =>
-    executeClause clause rel db.indexes
+    executeClause clause rel db.indexes ruleEnv
 
   -- Project to find variables and remove duplicates
   let projected := relation.project query.find |>.distinct
@@ -131,9 +239,10 @@ def executeRaw (query : Query) (db : Db) : Relation :=
 def executeForAggregate (query : Query) (db : Db) : Relation :=
   -- Start with a singleton empty binding
   let initial := Relation.singleton Binding.empty
+  let ruleEnv := buildRuleEnv query.rules db.indexes
   -- Execute all where clauses, threading through the relation
   query.where_.foldl (init := initial) fun rel clause =>
-    executeClause clause rel db.indexes
+    executeClause clause rel db.indexes ruleEnv
 
 /-- Convenience: Execute a simple pattern query. -/
 def findPattern (pattern : Pattern) (findVars : List String) (db : Db) : QueryResult :=

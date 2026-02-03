@@ -59,6 +59,11 @@ def getVar? : Term → Option Var
   | .var v => some v
   | _ => none
 
+/-- Get variables used in this term. -/
+def vars : Term → List Var
+  | .var v => [v]
+  | _ => []
+
 end Term
 
 /-- A pattern matching datoms: [entity attribute value].
@@ -91,12 +96,29 @@ def constCount (p : Pattern) : Nat :=
 
 end Pattern
 
+/-- A rule call clause: (rule-name arg1 arg2 ...) -/
+structure RuleCall where
+  name : String
+  args : List Term
+  deriving Repr, Inhabited
+
+namespace RuleCall
+
+def arity (rc : RuleCall) : Nat := rc.args.length
+
+def vars (rc : RuleCall) : List Var :=
+  (rc.args.map Term.vars).flatten.eraseDups
+
+end RuleCall
+
 /-- A where clause - currently just patterns, but extensible. -/
 inductive Clause where
   /-- A simple pattern to match. -/
   | pattern (p : Pattern)
   /-- A predicate expression to filter bindings. -/
   | predicate (p : Query.Predicate)
+  /-- A rule call. -/
+  | rule (call : RuleCall)
   /-- Logical AND of multiple clauses. -/
   | and (clauses : List Clause)
   /-- Logical OR of multiple clauses. -/
@@ -114,6 +136,7 @@ def pat (e a v : Term) : Clause := .pattern ⟨e, a, v⟩
 def patterns : Clause → List Pattern
   | .pattern p => [p]
   | .predicate _ => []
+  | .rule _ => []
   | .and cs => (cs.map patterns).flatten
   | .or cs => (cs.map patterns).flatten
   | .not c => c.patterns
@@ -122,11 +145,25 @@ def patterns : Clause → List Pattern
 def vars : Clause → List Var
   | .pattern p => p.vars
   | .predicate p => Query.Predicate.vars p
+  | .rule c => c.vars
   | .and cs => (cs.map vars).flatten.eraseDups
   | .or cs => (cs.map vars).flatten.eraseDups
   | .not c => c.vars
 
 end Clause
+
+/-- A rule definition with a name, parameters, and body clauses. -/
+structure RuleDef where
+  name : String
+  params : List Var
+  body : List Clause
+  deriving Repr, Inhabited
+
+namespace RuleDef
+
+def arity (r : RuleDef) : Nat := r.params.length
+
+end RuleDef
 
 /-- A complete query with find clause and where clause. -/
 structure Query where
@@ -134,6 +171,8 @@ structure Query where
   find : List Var
   /-- Patterns to match. -/
   where_ : List Clause
+  /-- Rule definitions for this query. -/
+  rules : List RuleDef := []
   deriving Repr, Inhabited
 
 namespace Query

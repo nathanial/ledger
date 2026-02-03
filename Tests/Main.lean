@@ -18,6 +18,7 @@ import Tests.Performance
 import Tests.RangeQuery
 import Tests.Schema
 import Tests.Aggregates
+import Tests.Rules
 
 open Crucible
 
