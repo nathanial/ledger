@@ -43,6 +43,7 @@ import Ledger.Pull.Executor
 
 -- DSL and Builders
 import Ledger.DSL.QueryBuilder
+import Ledger.DSL.Macros
 import Ledger.DSL.PullBuilder
 import Ledger.DSL.TxBuilder
 import Ledger.DSL.TxM

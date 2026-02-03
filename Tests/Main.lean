@@ -19,6 +19,7 @@ import Tests.RangeQuery
 import Tests.Schema
 import Tests.Aggregates
 import Tests.Rules
+import Tests.Macros
 
 open Crucible
 
