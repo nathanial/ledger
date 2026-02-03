@@ -83,6 +83,12 @@ def compareVAET (a b : Datom) : Ordering :=
     | o => o
   | o => o
 
+instance : Ord Datom where
+  compare a b := compareEAVT a b
+
+instance : Hashable Datom where
+  hash d := hash (d.entity, d.attr, d.value, d.tx, d.added)
+
 end Datom
 
 end Ledger

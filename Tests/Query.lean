@@ -674,6 +674,79 @@ test "Query: or branch respects shared bindings" := do
   let result := Query.execute query db
   result.size ≡ 2
 
+test "Query: or drops branch-only vars" := do
+  let db := Db.empty
+  let (sam, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add sam (Attribute.mk ":person/name") (Value.string "Sam"),
+    .add sam (Attribute.mk ":person/nickname") (Value.string "Sam"),
+    .add sam (Attribute.mk ":person/tag") (Value.string "vip")
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
+  let query : Query := {
+    find := [⟨"name"⟩]
+    where_ := [
+      .or [
+        .pattern {
+          entity := .var ⟨"e"⟩
+          attr := .attr (Attribute.mk ":person/name")
+          value := .var ⟨"name"⟩
+        },
+        .and [
+          .pattern {
+            entity := .var ⟨"e"⟩
+            attr := .attr (Attribute.mk ":person/nickname")
+            value := .var ⟨"name"⟩
+          },
+          .pattern {
+            entity := .var ⟨"e"⟩
+            attr := .attr (Attribute.mk ":person/tag")
+            value := .var ⟨"tag"⟩
+          }
+        ]
+      ]
+    ]
+  }
+  let rel := Query.executeForAggregate query db
+  ensure (rel.bindings.all fun b => (b.lookup ⟨"tag"⟩).isNone) "Expected tag to be out of scope"
+
+test "Query: or dedups branch-local multiplicity" := do
+  let db := Db.empty
+  let (sam, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add sam (Attribute.mk ":person/name") (Value.string "Sam"),
+    .add sam (Attribute.mk ":person/nickname") (Value.string "Sam"),
+    .add sam (Attribute.mk ":person/tag") (Value.string "vip"),
+    .add sam (Attribute.mk ":person/tag") (Value.string "new")
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
+  let query : Query := {
+    find := [⟨"name"⟩]
+    where_ := [
+      .or [
+        .pattern {
+          entity := .var ⟨"e"⟩
+          attr := .attr (Attribute.mk ":person/name")
+          value := .var ⟨"name"⟩
+        },
+        .and [
+          .pattern {
+            entity := .var ⟨"e"⟩
+            attr := .attr (Attribute.mk ":person/nickname")
+            value := .var ⟨"name"⟩
+          },
+          .pattern {
+            entity := .var ⟨"e"⟩
+            attr := .attr (Attribute.mk ":person/tag")
+            value := .var ⟨"tag"⟩
+          }
+        ]
+      ]
+    ]
+  }
+  let rel := Query.executeForAggregate query db
+  rel.size ≡ 1
+
 /-! ## Negation with Unbound Vars -/
 
 test "Query: negation with unbound vars yields empty" := do

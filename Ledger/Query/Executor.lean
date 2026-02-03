@@ -119,6 +119,23 @@ private def bindingValues (params : List Var) (b : Binding) : Option (List Bound
 private def bindingFromValues (params : List Var) (values : List BoundValue) : Binding :=
   ⟨params.zip values⟩
 
+private def varsInAllBindings (rel : Relation) : List Var :=
+  match rel.bindings with
+  | [] => []
+  | b :: rest =>
+    rest.foldl (init := b.vars) fun acc b' =>
+      acc.filter (b'.isBound ·)
+
+private def intersectVars (a b : List Var) : List Var :=
+  a.filter (b.contains ·)
+
+private def commonClauseVars (clauses : List Clause) : List Var :=
+  match clauses with
+  | [] => []
+  | c :: rest =>
+    rest.foldl (init := c.vars) fun acc c' =>
+      intersectVars acc c'.vars
+
 private def executeRuleCall (call : RuleCall) (input : Relation) (rules : RuleEnv) : Relation :=
   let key := RuleKey.ofName call.name call.arity
   match rules.get? key with
@@ -148,10 +165,17 @@ def executeClause (clause : Clause) (input : Relation) (idx : Indexes) (rules : 
     clauses.foldl (init := input) fun rel clause' =>
       executeClause clause' rel idx rules
   | .or clauses =>
-    -- Union: collect results from each branch with same input
+    -- Union with shared variable scoping and deduplication
+    let inputVars := varsInAllBindings input
+    let sharedBranchVars := commonClauseVars clauses
+    let sharedVars := inputVars ++ sharedBranchVars.filter (fun v => !inputVars.contains v)
     let results := clauses.flatMap fun c =>
-      (executeClause c input idx rules).bindings
-    ⟨results⟩
+      let rel := executeClause c input idx rules
+      rel.bindings.filterMap fun b =>
+        match bindingValues sharedVars b with
+        | some vals => some (bindingFromValues sharedVars vals)
+        | none => none
+    Relation.distinct ⟨results⟩
   | .not innerClause =>
     -- Negation-as-failure: keep bindings where inner clause produces no matches
     input.filter fun b =>
