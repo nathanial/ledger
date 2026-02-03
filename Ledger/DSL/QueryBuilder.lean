@@ -12,6 +12,7 @@ import Ledger.Query.AST
 import Ledger.Query.Binding
 import Ledger.Query.Executor
 import Ledger.Query.Aggregates
+import Ledger.Query.Predicate
 import Ledger.Db.Database
 
 namespace Ledger
@@ -22,6 +23,7 @@ namespace DSL
 structure QueryBuilder where
   findVars : List Var := []
   patterns : List Pattern := []
+  predicates : List Query.Predicate := []
   groupVars : List Var := []
   aggregates : List AggregateSpec := []
   deriving Repr, Inhabited
@@ -84,6 +86,10 @@ def whereRef (qb : QueryBuilder) (eVar : String) (attr : String) (ref : EntityId
   }
   { qb with patterns := qb.patterns ++ [pattern] }
 
+/-- Add a predicate clause to the query. -/
+def wherePred (qb : QueryBuilder) (pred : Query.Predicate) : QueryBuilder :=
+  { qb with predicates := qb.predicates ++ [pred] }
+
 /-- Add a group-by variable. -/
 def groupBy (qb : QueryBuilder) (varName : String) : QueryBuilder :=
   { qb with groupVars := qb.groupVars ++ [⟨varName⟩] }
@@ -122,8 +128,10 @@ def hasAggregates (qb : QueryBuilder) : Bool :=
 
 /-- Build the query. -/
 def build (qb : QueryBuilder) : Query :=
+  let clauses : List Clause :=
+    qb.patterns.map Clause.pattern ++ qb.predicates.map Clause.predicate
   { find := qb.findVars
-  , where_ := qb.patterns.map .pattern }
+  , where_ := clauses }
 
 /-- Build and execute the query. -/
 def run (qb : QueryBuilder) (db : Db) : Query.QueryResult :=

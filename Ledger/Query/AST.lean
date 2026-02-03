@@ -8,23 +8,10 @@
 import Ledger.Core.EntityId
 import Ledger.Core.Attribute
 import Ledger.Core.Value
+import Ledger.Query.Var
+import Ledger.Query.Predicate
 
 namespace Ledger
-
-/-- A logic variable, identified by name (e.g., "?e", "?name"). -/
-structure Var where
-  name : String
-  deriving Repr, BEq, Hashable, Ord, Inhabited
-
-instance : ToString Var where
-  toString v := s!"?{v.name}"
-
-namespace Var
-
-/-- Create a variable from a name (without the ? prefix). -/
-def ofName (name : String) : Var := ⟨name⟩
-
-end Var
 
 /-- A term in a pattern - either a constant, variable, or blank (wildcard). -/
 inductive Term where
@@ -108,6 +95,8 @@ end Pattern
 inductive Clause where
   /-- A simple pattern to match. -/
   | pattern (p : Pattern)
+  /-- A predicate expression to filter bindings. -/
+  | predicate (p : Query.Predicate)
   /-- Logical AND of multiple clauses. -/
   | and (clauses : List Clause)
   /-- Logical OR of multiple clauses. -/
@@ -124,6 +113,7 @@ def pat (e a v : Term) : Clause := .pattern ⟨e, a, v⟩
 /-- Get all patterns in this clause (flattened). -/
 def patterns : Clause → List Pattern
   | .pattern p => [p]
+  | .predicate _ => []
   | .and cs => (cs.map patterns).flatten
   | .or cs => (cs.map patterns).flatten
   | .not c => c.patterns
@@ -131,6 +121,7 @@ def patterns : Clause → List Pattern
 /-- Get all variables used in this clause. -/
 def vars : Clause → List Var
   | .pattern p => p.vars
+  | .predicate p => Query.Predicate.vars p
   | .and cs => (cs.map vars).flatten.eraseDups
   | .or cs => (cs.map vars).flatten.eraseDups
   | .not c => c.vars

@@ -9,6 +9,7 @@ import Tests.Core
 import Tests.Database
 import Tests.Retraction
 import Tests.Query
+import Tests.Predicate
 import Tests.Pull
 import Tests.DSL
 import Tests.Persistence

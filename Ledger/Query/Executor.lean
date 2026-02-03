@@ -11,6 +11,8 @@ import Ledger.Db.Database
 import Ledger.Query.AST
 import Ledger.Query.Binding
 import Ledger.Query.Unify
+import Ledger.Query.Predicate
+import Ledger.Query.PredicateEval
 import Ledger.Query.IndexSelect
 
 namespace Ledger
@@ -86,6 +88,8 @@ def executeClause (clause : Clause) (input : Relation) (idx : Indexes) : Relatio
     input.flatMap fun b =>
       let candidates := IndexSelect.fetchCandidates p b idx
       (Unify.matchPattern p candidates b).bindings
+  | .predicate p =>
+    input.filter fun b => Predicate.eval p b
   | .and clauses =>
     -- Chain clauses: output of one becomes input of next
     clauses.foldl (init := input) fun rel clause' =>
