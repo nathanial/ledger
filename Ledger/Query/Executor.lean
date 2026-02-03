@@ -117,7 +117,7 @@ private def bindingValues (params : List Var) (b : Binding) : Option (List Bound
   params.mapM fun v => b.lookup v
 
 private def bindingFromValues (params : List Var) (values : List BoundValue) : Binding :=
-  ⟨params.zip values⟩
+  Binding.ofList (params.zip values)
 
 private def varsInAllBindings (rel : Relation) : List Var :=
   match rel.bindings with
@@ -186,7 +186,7 @@ def executeClause (clause : Clause) (input : Relation) (idx : Indexes) (rules : 
 private def projectBindingOrdered (params : List Var) (b : Binding) : Option Binding :=
   let entries? := params.mapM fun v =>
     b.lookup v |>.map fun val => (v, val)
-  entries?.map (fun entries => ⟨entries⟩)
+  entries?.map Binding.ofList
 
 private def normalizeRelation (fromParams toParams : List Var) (rel : Relation) : Relation :=
   let bindings := rel.bindings.filterMap fun b =>

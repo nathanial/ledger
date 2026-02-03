@@ -5,6 +5,7 @@
   A binding maps variables to values, and a relation is a set of bindings.
 -/
 
+import Std.Data.HashMap
 import Ledger.Core.EntityId
 import Ledger.Core.Value
 import Ledger.Query.AST
@@ -48,43 +49,60 @@ end BoundValue
 
 /-- A binding maps variables to bound values. -/
 structure Binding where
-  entries : List (Var × BoundValue)
+  entries : Std.HashMap Var BoundValue := {}
   deriving Repr, Inhabited
 
 instance : BEq Binding where
-  beq a b := a.entries == b.entries
+  beq a b :=
+    if a.entries.size != b.entries.size then
+      false
+    else
+      a.entries.toList.all fun (v, val) =>
+        match b.entries[v]? with
+        | some other => other == val
+        | none => false
 
 namespace Binding
 
 /-- Empty binding. -/
-def empty : Binding := ⟨[]⟩
+def empty : Binding := ⟨{}⟩
 
 /-- Look up a variable in the binding. -/
 def lookup (b : Binding) (v : Var) : Option BoundValue :=
-  (b.entries.find? fun (v', _) => v' == v).map Prod.snd
+  b.entries[v]?
 
 /-- Check if a variable is bound. -/
 def isBound (b : Binding) (v : Var) : Bool :=
-  b.entries.any fun (v', _) => v' == v
+  b.entries.contains v
 
 /-- Bind a variable to a value. -/
 def bind (b : Binding) (v : Var) (val : BoundValue) : Binding :=
-  ⟨(v, val) :: b.entries⟩
+  ⟨b.entries.insert v val⟩
 
 /-- Get all bound variables. -/
 def vars (b : Binding) : List Var :=
-  b.entries.map Prod.fst
+  b.entries.toList.map Prod.fst
+
+/-- Build a binding from a list of pairs. Later entries overwrite earlier ones. -/
+def ofList (entries : List (Var × BoundValue)) : Binding :=
+  let map := entries.foldl (init := ({} : Std.HashMap Var BoundValue)) fun acc (v, val) =>
+    acc.insert v val
+  ⟨map⟩
 
 /-- Merge two bindings. Returns none if there's a conflict. -/
 def merge (b1 b2 : Binding) : Option Binding :=
-  b2.entries.foldlM (init := b1) fun acc (v, val) =>
+  b2.entries.toList.foldlM (init := b1) fun acc (v, val) =>
     match acc.lookup v with
     | none => some (acc.bind v val)
     | some existing => if existing == val then some acc else none
 
 /-- Project binding to only include specified variables. -/
 def project (b : Binding) (vs : List Var) : Binding :=
-  ⟨b.entries.filter fun (v, _) => vs.contains v⟩
+  let filtered := vs.foldl (init := ({} : Std.HashMap Var BoundValue)) fun acc v =>
+    match b.lookup v with
+    | some val => acc.insert v val
+    | none => acc
+  ⟨filtered⟩
 
 /-- Convert binding to a list of values in variable order. -/
 def toValues (b : Binding) (vs : List Var) : List (Option BoundValue) :=
