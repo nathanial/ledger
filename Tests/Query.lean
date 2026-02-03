@@ -522,4 +522,220 @@ test "Query: retracted values are not returned" := do
   let result := Query.execute query db
   result.size ≡ 0
 
+/-! ## Binding Conflicts and Coercions -/
+
+test "Query: conflicting bindings yield no results" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add alice (Attribute.mk ":person/name") (Value.string "Alice"),
+    .add alice (Attribute.mk ":person/age") (Value.int 30)
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
+  let query : Query := {
+    find := [⟨"e"⟩]
+    where_ := [
+      .pattern {
+        entity := .var ⟨"e"⟩
+        attr := .attr (Attribute.mk ":person/name")
+        value := .value (Value.string "Alice")
+      },
+      .pattern {
+        entity := .var ⟨"e"⟩
+        attr := .attr (Attribute.mk ":person/name")
+        value := .value (Value.string "Bob")
+      }
+    ]
+  }
+  let result := Query.execute query db
+  result.size ≡ 0
+
+test "Query: type-mismatched variable reuse fails" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add alice (Attribute.mk ":person/name") (Value.string "Alice")
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
+  let query : Query := {
+    find := [⟨"x"⟩]
+    where_ := [
+      .pattern {
+        entity := .entity alice
+        attr := .var ⟨"x"⟩
+        value := .value (Value.string "Alice")
+      },
+      .pattern {
+        entity := .entity alice
+        attr := .attr (Attribute.mk ":person/name")
+        value := .var ⟨"x"⟩
+      }
+    ]
+  }
+  let result := Query.execute query db
+  result.size ≡ 0
+
+test "Query: value ref variable used as entity" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let (bob, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add alice (Attribute.mk ":person/friend") (Value.ref bob),
+    .add bob (Attribute.mk ":person/name") (Value.string "Bob")
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
+  let query : Query := {
+    find := [⟨"name"⟩]
+    where_ := [
+      .pattern {
+        entity := .entity alice
+        attr := .attr (Attribute.mk ":person/friend")
+        value := .var ⟨"f"⟩
+      },
+      .pattern {
+        entity := .var ⟨"f"⟩
+        attr := .attr (Attribute.mk ":person/name")
+        value := .var ⟨"name"⟩
+      }
+    ]
+  }
+  let result := Query.execute query db
+  result.size ≡ 1
+
+test "Query: entity variable used as value (ref match)" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let (bob, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add alice (Attribute.mk ":person/friend") (Value.ref bob),
+    .add alice (Attribute.mk ":person/name") (Value.string "Alice"),
+    .add bob (Attribute.mk ":person/name") (Value.string "Bob")
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
+  let query : Query := {
+    find := [⟨"e"⟩]
+    where_ := [
+      .pattern {
+        entity := .var ⟨"e"⟩
+        attr := .attr (Attribute.mk ":person/name")
+        value := .value (Value.string "Bob")
+      },
+      .pattern {
+        entity := .entity alice
+        attr := .attr (Attribute.mk ":person/friend")
+        value := .var ⟨"e"⟩
+      }
+    ]
+  }
+  let result := Query.execute query db
+  match result.rows.bindings with
+  | [b] =>
+    match b.lookup ⟨"e"⟩ with
+    | some (.entity e) => ensure (e == bob) "Expected bob entity binding"
+    | some (.value (.ref e)) => ensure (e == bob) "Expected bob ref binding"
+    | _ => throw <| IO.userError "Expected entity binding for bob"
+  | _ => throw <| IO.userError s!"Expected one result, got {result.size}"
+
+/-! ## OR with Shared Bindings -/
+
+test "Query: or branch respects shared bindings" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let (bob, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add alice (Attribute.mk ":person/name") (Value.string "Alice"),
+    .add alice (Attribute.mk ":person/dept") (Value.string "Sales"),
+    .add bob (Attribute.mk ":person/name") (Value.string "Bob"),
+    .add bob (Attribute.mk ":person/dept") (Value.string "Engineering")
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
+  let query : Query := {
+    find := [⟨"name"⟩]
+    where_ := [
+      .pattern {
+        entity := .var ⟨"e"⟩
+        attr := .attr (Attribute.mk ":person/name")
+        value := .var ⟨"name"⟩
+      },
+      .or [
+        .pattern {
+          entity := .var ⟨"e"⟩
+          attr := .attr (Attribute.mk ":person/dept")
+          value := .value (Value.string "Sales")
+        },
+        .pattern {
+          entity := .var ⟨"e"⟩
+          attr := .attr (Attribute.mk ":person/dept")
+          value := .value (Value.string "Engineering")
+        }
+      ]
+    ]
+  }
+  let result := Query.execute query db
+  result.size ≡ 2
+
+/-! ## Negation with Unbound Vars -/
+
+test "Query: negation with unbound vars yields empty" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add alice (Attribute.mk ":person/name") (Value.string "Alice")
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
+  let query : Query := {
+    find := [⟨"e"⟩]
+    where_ := [
+      .not (.pattern {
+        entity := .var ⟨"e"⟩
+        attr := .attr (Attribute.mk ":person/name")
+        value := .value (Value.string "Alice")
+      })
+    ]
+  }
+  let result := Query.execute query db
+  result.size ≡ 0
+
+/-! ## VAET Selection and Validation -/
+
+test "Query: value-only ref pattern uses VAET path" := do
+  let db := Db.empty
+  let (alice, db) := db.allocEntityId
+  let (bob, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add bob (Attribute.mk ":person/friend") (Value.ref alice)
+  ]
+  let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
+  let pattern : Pattern := {
+    entity := .var ⟨"e"⟩
+    attr := .var ⟨"a"⟩
+    value := .value (Value.ref alice)
+  }
+  let result := Query.executePattern pattern Binding.empty db.indexes
+  result.size ≡ 1
+
+test "Query: isValid checks find vars appear in where" := do
+  let okQuery : Query := {
+    find := [⟨"e"⟩]
+    where_ := [
+      .pattern {
+        entity := .var ⟨"e"⟩
+        attr := .attr (Attribute.mk ":person/name")
+        value := .var ⟨"name"⟩
+      }
+    ]
+  }
+  let badQuery : Query := {
+    find := [⟨"missing"⟩]
+    where_ := [
+      .pattern {
+        entity := .var ⟨"e"⟩
+        attr := .attr (Attribute.mk ":person/name")
+        value := .var ⟨"name"⟩
+      }
+    ]
+  }
+  Query.isValid okQuery ≡ true
+  Query.isValid badQuery ≡ false
+
 end Ledger.Tests.Query
