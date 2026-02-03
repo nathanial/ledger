@@ -20,6 +20,7 @@ import Tests.Schema
 import Tests.Aggregates
 import Tests.Rules
 import Tests.Macros
+import Tests.TxFunctions
 
 open Crucible
 

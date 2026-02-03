@@ -16,6 +16,7 @@ import Ledger.Index.Manager
 
 -- Transaction types
 import Ledger.Tx.Types
+import Ledger.Tx.Functions
 
 -- Schema types and validation
 import Ledger.Schema.Types

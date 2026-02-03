@@ -17,6 +17,7 @@ import Ledger.Core.EntityId
 import Ledger.Core.Attribute
 import Ledger.Core.Value
 import Ledger.Tx.Types
+import Ledger.Tx.Functions
 import Ledger.Db.Database
 
 namespace Ledger
@@ -48,6 +49,10 @@ def retractEntity (e : EntityId) : TxM Unit :=
 /-- Retract an entity by lookup ref (attribute + value) -/
 def retractEntityLookup (attr : Attribute) (v : Value) : TxM Unit :=
   modify fun s => { s with ops := s.ops.push (.retractEntity (.lookup attr v)) }
+
+/-- Call a transaction function by name. -/
+def call (fn : String) (args : List Value) : TxM Unit :=
+  modify fun s => { s with ops := s.ops.push (.call fn args) }
 
 /-- Get the database snapshot (for reading current values) -/
 def getDb : TxM Db := read
@@ -202,6 +207,17 @@ def run (m : TxM α) (db : Db) : Except TxError (α × Db × TxReport) :=
     .ok (result, db, { txId := TxId.genesis, txData := #[], txInstant := 0 })
   else
     match db.transact ops.toList with
+    | .ok (db', report) => .ok (result, db', report)
+    | .error e => .error e
+
+/-- Run a TxM and commit with a custom function registry. -/
+def runWith (m : TxM α) (db : Db) (registry : TxFuncRegistry) :
+    Except TxError (α × Db × TxReport) :=
+  let (result, ops) := build m db
+  if ops.isEmpty then
+    .ok (result, db, { txId := TxId.genesis, txData := #[], txInstant := 0 })
+  else
+    match db.transactWith registry ops.toList with
     | .ok (db', report) => .ok (result, db', report)
     | .error e => .error e
 

@@ -11,6 +11,7 @@ import Ledger.Core.Value
 import Ledger.Core.Datom
 import Ledger.Index.Manager
 import Ledger.Tx.Types
+import Ledger.Tx.Functions
 import Ledger.Schema.Types
 import Ledger.Schema.Validation
 import Ledger.Schema.Install
@@ -123,7 +124,7 @@ private partial def collectRetractFacts (db : Db) (schema : Schema) (entity : En
       collectRetractFacts db schema child v f
 
 /-- Expand retractEntity operations into concrete retract operations. -/
-private def expandTransaction (db : Db) (tx : Transaction) : Except TxError Transaction := do
+private def expandRetractEntities (db : Db) (tx : Transaction) : Except TxError Transaction := do
   let schema := schemaForComponents db
   let mut expanded : Transaction := []
   let mut retracted : FactSet := {}
@@ -149,12 +150,34 @@ private def expandTransaction (db : Db) (tx : Transaction) : Except TxError Tran
           |>.map (·.1)
         expanded := expanded ++ newKeys.map (fun k => .retract k.entity k.attr k.value)
         retracted := retracted'
+    | .call _ _ =>
+      expanded := expanded ++ [op]
 
   return expanded
 
 /-- Build current fact map from a list of datoms (in transaction order). -/
 def currentFactsFromDatoms (datoms : List Datom) : Std.HashMap FactKey Datom :=
   datoms.foldl (init := {}) fun acc d => applyCurrentFact acc d
+
+/-- Read-only view for tx functions. -/
+private def txFuncView (db : Db) : DbView :=
+  let getOne := fun e a =>
+    let datoms := db.indexes.datomsForEntityAttr e a
+    match datoms with
+    | [] => none
+    | d :: rest =>
+      let latest := rest.foldl (init := d) fun best cand =>
+        if cand.tx.id > best.tx.id then cand else best
+      some latest.value
+  let get := fun e a =>
+    let datoms := db.indexes.datomsForEntityAttr e a
+    let sorted := datoms.toArray.qsort (fun a b => a.tx.id > b.tx.id)
+    sorted.toList.map (·.value)
+  { getOne := getOne
+  , get := get
+  , entity := fun e => db.indexes.datomsForEntity e
+  , findByAttrValue := fun a v => db.indexes.entitiesWithAttrValue a v
+  , findOneByAttrValue := fun a v => db.indexes.entityWithAttrValue a v }
 
 /-- Create an empty database. -/
 def empty : Db :=
@@ -188,14 +211,18 @@ private def isFactAsserted (facts : Std.HashMap FactKey Datom)
 
 /-- Process a transaction, producing a new database snapshot.
     This is a pure function - the original database is unchanged. -/
-def transact (db : Db) (tx : Transaction) (instant : Nat := 0) : Except TxError (Db × TxReport) := do
+def transactWith (db : Db) (registry : TxFuncRegistry) (tx : Transaction) (instant : Nat := 0)
+    : Except TxError (Db × TxReport) := do
+  let ctx : TxFuncContext := { db := txFuncView db, tx := tx }
+  let expandedCalls ← expandTxFunctions ctx registry TxFunctions.defaultMaxDepth tx
+  let expandedTx ← expandRetractEntities db expandedCalls
+
   -- Schema validation (if schema is configured)
   if let some config := db.schemaConfig then
-    match SchemaValidation.validateTransaction config db.indexes tx with
+    match SchemaValidation.validateTransaction config db.indexes expandedTx with
     | .error schemaErr => throw (.schemaViolation (toString schemaErr))
     | .ok () => pure ()
 
-  let expandedTx ← expandTransaction db tx
   let newTxId := db.basisT.next
 
   -- Convert transaction operations to datoms
@@ -230,6 +257,9 @@ def transact (db : Db) (tx : Transaction) (instant : Nat := 0) : Except TxError 
     | .retractEntity _ =>
       -- Should have been expanded away
       pure ()
+    | .call _ _ =>
+      -- Should have been expanded away
+      pure ()
 
   let db' : Db :=
     { db with
@@ -244,6 +274,10 @@ def transact (db : Db) (tx : Transaction) (instant : Nat := 0) : Except TxError 
     , txInstant := instant }
 
   return (db', report)
+
+/-- Process a transaction with the default tx function registry. -/
+def transact (db : Db) (tx : Transaction) (instant : Nat := 0) : Except TxError (Db × TxReport) :=
+  db.transactWith TxFunctions.defaultRegistry tx instant
 
 -- ============================================================
 -- Entity-based queries (use EAVT index)

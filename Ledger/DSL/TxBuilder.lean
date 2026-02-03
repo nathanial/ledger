@@ -9,6 +9,7 @@ import Ledger.Core.EntityId
 import Ledger.Core.Attribute
 import Ledger.Core.Value
 import Ledger.Tx.Types
+import Ledger.Tx.Functions
 import Ledger.Db.Database
 import Ledger.Db.Connection
 
@@ -86,6 +87,10 @@ def retractEntityLookupStr (tb : TxBuilder) (attr : String) (v : String) : TxBui
 def retractEntityLookupInt (tb : TxBuilder) (attr : String) (v : Int) : TxBuilder :=
   tb.retractEntityLookup attr (.int v)
 
+/-- Call a transaction function by name. -/
+def call (tb : TxBuilder) (fn : String) (args : List Value) : TxBuilder :=
+  { tb with ops := tb.ops ++ [.call fn args] }
+
 /-- Build the transaction. -/
 def build (tb : TxBuilder) : Transaction := tb.ops
 
@@ -93,9 +98,19 @@ def build (tb : TxBuilder) : Transaction := tb.ops
 def run (tb : TxBuilder) (db : Db) : Except TxError (Db × TxReport) :=
   db.transact tb.ops
 
+/-- Execute the transaction on a database with a custom function registry. -/
+def runWith (tb : TxBuilder) (db : Db) (registry : TxFuncRegistry) :
+    Except TxError (Db × TxReport) :=
+  db.transactWith registry tb.ops
+
 /-- Execute the transaction on a connection. -/
 def runOn (tb : TxBuilder) (conn : Connection) : Except TxError (Connection × TxReport) :=
   conn.transact tb.ops
+
+/-- Execute the transaction on a connection with a custom function registry. -/
+def runOnWith (tb : TxBuilder) (conn : Connection) (registry : TxFuncRegistry) :
+    Except TxError (Connection × TxReport) :=
+  conn.transactWith registry tb.ops
 
 end TxBuilder
 

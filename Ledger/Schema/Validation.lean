@@ -65,6 +65,9 @@ def validateOp (config : SchemaConfig) (indexes : Indexes) (pendingAdds : List T
   | .retractEntity _ =>
     -- Entity retractions don't need schema validation
     .ok ()
+  | .call _ _ =>
+    -- Calls should be expanded before validation
+    .ok ()
   | .add entity attr value =>
     match config.schema.get? attr with
     | none =>

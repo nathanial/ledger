@@ -11,6 +11,7 @@ import Ledger.Core.Value
 import Ledger.Core.Datom
 import Ledger.Index.Manager
 import Ledger.Tx.Types
+import Ledger.Tx.Functions
 import Ledger.Db.Database
 import Ledger.Db.TimeTravel
 
@@ -44,6 +45,23 @@ def basisT (conn : Connection) : TxId := conn.db.basisT
 def transact (conn : Connection) (tx : Transaction) (instant : Nat := 0)
     : Except TxError (Connection × TxReport) := do
   let (db', report) ← conn.db.transact tx instant
+
+  -- Add to transaction log
+  let logEntry : TxLogEntry :=
+    { txId := report.txId
+    , txInstant := report.txInstant
+    , datoms := report.txData }
+
+  let conn' : Connection :=
+    { db := db'
+    , txLog := conn.txLog.add logEntry }
+
+  return (conn', report)
+
+/-- Process a transaction with a custom tx function registry. -/
+def transactWith (conn : Connection) (registry : TxFuncRegistry) (tx : Transaction)
+    (instant : Nat := 0) : Except TxError (Connection × TxReport) := do
+  let (db', report) ← conn.db.transactWith registry tx instant
 
   -- Add to transaction log
   let logEntry : TxLogEntry :=

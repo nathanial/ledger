@@ -37,6 +37,8 @@ inductive TxOp where
   | retract (entity : EntityId) (attr : Attribute) (value : Value)
   /-- Retract an entity (and its references), optionally via lookup ref. -/
   | retractEntity (entity : EntityRef)
+  /-- Call a transaction function (expanded before application). -/
+  | call (fn : String) (args : List Value)
   deriving Repr, Inhabited
 
 namespace TxOp
@@ -46,6 +48,7 @@ instance : ToString TxOp where
     | .add e a v => s!"[:db/add {e} {a} {v}]"
     | .retract e a v => s!"[:db/retract {e} {a} {v}]"
     | .retractEntity e => s!"[:db/retractEntity {e}]"
+    | .call fn args => s!"[:db/call {fn} {args}]"
 
 end TxOp
 
