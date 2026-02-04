@@ -89,6 +89,7 @@ def snapshot (pc : PersistentConnection) : IO Unit := do
   let path := Snapshot.defaultPath pc.journalPath
   Snapshot.write path snap
 
+
 /-- Get the underlying database for queries -/
 def db (pc : PersistentConnection) : Db :=
   pc.conn.db
