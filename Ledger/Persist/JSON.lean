@@ -206,7 +206,7 @@ def datomToJson (d : Datom) : String :=
   let added := d.added
   s!"[{e},\"{a}\",{v},{t},{added}]"
 
-private def datomFromJsonValue (v : JValue) : Option Datom := do
+def datomFromJsonValue (v : JValue) : Option Datom := do
   let arr ← getArr? v
   if arr.size < 5 then
     none
@@ -246,7 +246,7 @@ def txLogEntryToJson (entry : TxLogEntry) : String := Id.run do
     datomsJson := datomsJson ++ datomToJson entry.datoms[i]!
   s!"\{\"txId\":{entry.txId.id},\"instant\":{entry.txInstant},\"datoms\":[{datomsJson}]}"
 
-private def txLogEntryFromJsonValue (v : JValue) : Option TxLogEntry := do
+def txLogEntryFromJsonValue (v : JValue) : Option TxLogEntry := do
   let txId ← getNatField? "txId" v
   let instant ← getNatField? "instant" v
   let datomVals ← getArrField? "datoms" v

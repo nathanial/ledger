@@ -94,6 +94,28 @@ test "JSON: TxLogEntry roundtrip" := do
   | some entry' => entry'.txId.id ≡ entry.txId.id
   | none => throw <| IO.userError "TxLogEntry parse failed"
 
+test "Snapshot: JSON roundtrip" := do
+  let snap : Persist.Snapshot := {
+    basisT := ⟨3⟩
+    nextEntityId := ⟨10⟩
+    currentFacts := #[
+      { entity := ⟨1⟩, attr := ⟨":person/name"⟩, value := .string "Alice", tx := ⟨3⟩, added := true }
+    ]
+    txLog := #[
+      { txId := ⟨1⟩, txInstant := 0, datoms := #[
+        { entity := ⟨1⟩, attr := ⟨":person/name"⟩, value := .string "Alice", tx := ⟨1⟩, added := true }
+      ]}
+    ]
+  }
+  let json := Persist.Snapshot.toJson snap
+  match Persist.Snapshot.fromJson json with
+  | some snap' =>
+    snap'.basisT.id ≡ snap.basisT.id
+    snap'.nextEntityId.id ≡ snap.nextEntityId.id
+    snap'.currentFacts.size ≡ snap.currentFacts.size
+    snap'.txLog.size ≡ snap.txLog.size
+  | none => throw <| IO.userError "Snapshot parse failed"
+
 test "JSON: Base64 empty roundtrip" := do
   let data := ByteArray.empty
   let encoded := Persist.JSON.base64Encode data
@@ -287,5 +309,30 @@ test "JSONL: File with many title changes" := do
   -- Check that getOne returns "Magic Gun" (value with highest tx)
   let title := conn.db.getOne card titleAttr
   title ≡ some (Value.string "Magic Gun")
+
+test "Snapshot: load + replay tail" := do
+  let journalPath : System.FilePath := "/tmp/ledger_snapshot_test.jsonl"
+  let snapshotPath := Persist.Snapshot.defaultPath journalPath
+  IO.FS.writeFile journalPath ""
+  if (← snapshotPath.pathExists) then
+    IO.FS.removeFile snapshotPath
+
+  let pc ← Persist.PersistentConnection.create journalPath
+  let (e1, pc) := pc.allocEntityId
+  let tx1 : Transaction := [
+    .add e1 (Attribute.mk ":person/name") (Value.string "Alice")
+  ]
+  let .ok (pc, _) := (← pc.transact tx1) | throw <| IO.userError "Tx1 failed"
+  pc.snapshot
+  let tx2 : Transaction := [
+    .add e1 (Attribute.mk ":person/age") (Value.int 42)
+  ]
+  let .ok (pc, _) := (← pc.transact tx2) | throw <| IO.userError "Tx2 failed"
+  pc.close
+
+  let pc2 ← Persist.PersistentConnection.create journalPath
+  pc2.db.getOne e1 (Attribute.mk ":person/name") ≡ some (Value.string "Alice")
+  pc2.db.getOne e1 (Attribute.mk ":person/age") ≡ some (Value.int 42)
+  pc2.allTxIds.length ≡ 2
 
 end Ledger.Tests.Persistence

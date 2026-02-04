@@ -41,58 +41,64 @@ def readJournal (path : System.FilePath) : IO (Array TxLogEntry) := do
 
   return entries
 
+/-- Read transaction log entries after a specific transaction (exclusive). -/
+def readJournalSince (path : System.FilePath) (txId : TxId) : IO (Array TxLogEntry) := do
+  let entries ← readJournal path
+  return entries.filter fun entry => entry.txId.id > txId.id
+
+/-- Apply a log entry to a connection (replay). -/
+private def applyEntry (conn : Connection) (entry : TxLogEntry) : Connection := Id.run do
+  -- Update indexes (current + history)
+  let mut indexes := conn.db.indexes
+  let mut historyIndexes := conn.db.historyIndexes
+  let mut currentFacts := conn.db.currentFacts
+  for datom in entry.datoms do
+    historyIndexes := historyIndexes.insertDatom datom
+    if datom.added then
+      let key := FactKey.ofDatom datom
+      if let some prev := currentFacts[key]? then
+        indexes := indexes.removeDatom prev
+      indexes := indexes.insertDatom datom
+      currentFacts := currentFacts.insert key datom
+    else
+      let key := FactKey.ofDatom datom
+      if let some prev := currentFacts[key]? then
+        indexes := indexes.removeDatom prev
+      currentFacts := currentFacts.erase key
+
+  -- Find max entity ID to update nextEntityId
+  let mut maxEntityId := conn.db.nextEntityId.id
+  for datom in entry.datoms do
+    if datom.entity.id > maxEntityId then
+      maxEntityId := datom.entity.id
+
+  -- Create new database state
+  let db' : Db := {
+    basisT := entry.txId
+    indexes := indexes
+    historyIndexes := historyIndexes
+    currentFacts := currentFacts
+    nextEntityId := ⟨maxEntityId + 1⟩
+  }
+
+  -- Add to transaction log
+  let txLog' := conn.txLog.add entry
+  return { db := db', txLog := txLog' }
+
+/-- Replay an array of entries into a connection. -/
+def replayEntries (conn : Connection) (entries : Array TxLogEntry) : Connection :=
+  entries.foldl applyEntry conn
+
 /-- Replay a journal file to build a Connection -/
 def replayJournal (path : System.FilePath) : IO Connection := do
   let entries ← readJournal path
 
   -- Start with empty connection
-  let mut conn := Connection.create
+  return replayEntries Connection.create entries
 
-  -- Replay each transaction's datoms
-  for entry in entries do
-    -- Update the connection's database with these datoms
-    -- We need to update basisT and nextEntityId
-    let newBasisT := entry.txId
-
-    -- Update indexes (current + history)
-    let mut indexes := conn.db.indexes
-    let mut historyIndexes := conn.db.historyIndexes
-    let mut currentFacts := conn.db.currentFacts
-    for datom in entry.datoms do
-      historyIndexes := historyIndexes.insertDatom datom
-      if datom.added then
-        let key := FactKey.ofDatom datom
-        if let some prev := currentFacts[key]? then
-          indexes := indexes.removeDatom prev
-        indexes := indexes.insertDatom datom
-        currentFacts := currentFacts.insert key datom
-      else
-        let key := FactKey.ofDatom datom
-        if let some prev := currentFacts[key]? then
-          indexes := indexes.removeDatom prev
-        currentFacts := currentFacts.erase key
-
-    -- Find max entity ID to update nextEntityId
-    let mut maxEntityId := conn.db.nextEntityId.id
-    for datom in entry.datoms do
-      if datom.entity.id > maxEntityId then
-        maxEntityId := datom.entity.id
-
-    -- Create new database state
-    let db' : Db := {
-      basisT := newBasisT
-      indexes := indexes
-      historyIndexes := historyIndexes
-      currentFacts := currentFacts
-      nextEntityId := ⟨maxEntityId + 1⟩
-    }
-
-    -- Add to transaction log
-    let logEntry : TxLogEntry := entry
-    let txLog' := conn.txLog.add logEntry
-
-    conn := { db := db', txLog := txLog' }
-
-  return conn
+/-- Replay journal entries after a specific transaction into an existing connection. -/
+def replayJournalSince (conn : Connection) (path : System.FilePath) (txId : TxId) : IO Connection := do
+  let entries ← readJournalSince path txId
+  return replayEntries conn entries
 
 end Ledger.Persist.JSONL

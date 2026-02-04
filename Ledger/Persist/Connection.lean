@@ -15,9 +15,11 @@ import Ledger.Db.TimeTravel
 import Ledger.Db.Connection
 import Ledger.Persist.JSON
 import Ledger.Persist.JSONL
+import Ledger.Persist.Snapshot
 
 open Ledger.Persist.JSON
 open Ledger.Persist.JSONL
+open Ledger.Persist.Snapshot
 
 namespace Ledger.Persist
 
@@ -36,8 +38,17 @@ namespace PersistentConnection
     If the file exists, replays all transactions to restore state.
     Opens the file for appending new transactions. -/
 def create (path : System.FilePath) : IO PersistentConnection := do
-  -- Replay existing journal if present
-  let conn ← replayJournal path
+  let snapshotPath := Snapshot.defaultPath path
+  let snap? ← Snapshot.read snapshotPath
+  let baseConn := match snap? with
+    | some snap => Snapshot.toConnection snap
+    | none => Connection.create
+  let baseTx := match snap? with
+    | some snap => snap.basisT
+    | none => TxId.genesis
+
+  -- Replay journal tail (if any)
+  let conn ← replayJournalSince baseConn path baseTx
 
   -- Open file for appending
   let handle ← IO.FS.Handle.mk path .append
@@ -71,6 +82,12 @@ def transact (pc : PersistentConnection) (tx : Transaction) (instant : Nat := 0)
 /-- Close the journal file handle -/
 def close (pc : PersistentConnection) : IO Unit := do
   pc.handle.flush
+
+/-- Write a snapshot for this connection (default path). -/
+def snapshot (pc : PersistentConnection) : IO Unit := do
+  let snap := Snapshot.fromConnection pc.conn
+  let path := Snapshot.defaultPath pc.journalPath
+  Snapshot.write path snap
 
 /-- Get the underlying database for queries -/
 def db (pc : PersistentConnection) : Db :=
