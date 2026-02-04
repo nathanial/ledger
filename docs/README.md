@@ -36,7 +36,7 @@ let age := DSL.getInt db alice ":person/age"
 -- => some 30
 
 -- Find entities by attribute value
-let entities := db.findByAttrValue
+let entities := db.entitiesWithAttrValue
   (Attribute.mk ":person/name")
   (Value.string "Alice")
 -- => [alice]

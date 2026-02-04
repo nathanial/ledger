@@ -153,8 +153,8 @@ Key order: Attribute → Value → Entity → Transaction
 ```
 
 Operations:
-- `db.findByAttrValue attr value` - Find entities matching attr=value
-- `db.findOneByAttrValue attr value` - Find single entity (unique lookup)
+- `db.entitiesWithAttrValue attr value` - Find entities matching attr=value
+- `db.entityWithAttrValue attr value` - Find single entity (unique lookup)
 
 ### VAET (Value-Attribute-Entity-Transaction)
 

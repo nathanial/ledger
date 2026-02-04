@@ -49,7 +49,7 @@ let name := db.getOne alice (Attribute.mk ":person/name")
 -- => some (Value.string "Alice")
 
 -- Query: find entities by value
-let alices := db.findByAttrValue
+let alices := db.entitiesWithAttrValue
   (Attribute.mk ":person/name")
   (Value.string "Alice")
 -- => [alice]

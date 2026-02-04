@@ -73,21 +73,21 @@ test "DSL: PullBuilder has name" := do
   let pullResult := pb.run db alice
   ensure (pullResult.get? (Attribute.mk ":person/name")).isSome "Should have name"
 
-test "DSL: findByStr" := do
+test "DSL: entitiesWithAttrValueStr" := do
   let db := Db.empty
   let (alice, db) := db.allocEntityId
   let txb := DSL.tx
     |>.addStr alice ":person/name" "Alice"
   let .ok (db, _) := txb.run db | throw <| IO.userError "TxBuilder failed"
-  (DSL.findByStr db ":person/name" "Alice").length ≡ 1
+  (DSL.entitiesWithAttrValueStr db ":person/name" "Alice").length ≡ 1
 
-test "DSL: findOneByStr" := do
+test "DSL: entityWithAttrValueStr" := do
   let db := Db.empty
   let (alice, db) := db.allocEntityId
   let txb := DSL.tx
     |>.addStr alice ":person/name" "Alice"
   let .ok (db, _) := txb.run db | throw <| IO.userError "TxBuilder failed"
-  DSL.findOneByStr db ":person/name" "Alice" ≡ some alice
+  DSL.entityWithAttrValueStr db ":person/name" "Alice" ≡ some alice
 
 test "DSL: follow" := do
   let db := Db.empty
@@ -112,7 +112,7 @@ test "DSL: followAndGet" := do
   let friendName := DSL.followAndGet db alice ":person/friend" ":person/name"
   friendName ≡ some (Value.string "Bob")
 
-test "DSL: allWith" := do
+test "DSL: entitiesWithAttr" := do
   let db := Db.empty
   let (alice, db) := db.allocEntityId
   let (bob, db) := db.allocEntityId
@@ -120,7 +120,7 @@ test "DSL: allWith" := do
     |>.addStr alice ":person/name" "Alice"
     |>.addStr bob ":person/name" "Bob"
   let .ok (db, _) := txb.run db | throw <| IO.userError "TxBuilder failed"
-  let withName := DSL.allWith db ":person/name"
+  let withName := DSL.entitiesWithAttr db ":person/name"
   withName.length ≡ 2
 
 test "DSL: EntityBuilder email" := do

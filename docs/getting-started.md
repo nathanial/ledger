@@ -124,12 +124,12 @@ Find entities where an attribute has a specific value:
 
 ```lean
 -- Find all entities with :person/name = "Alice"
-let alices := db.findByAttrValue
+let alices := db.entitiesWithAttrValue
   (Attribute.mk ":person/name")
   (Value.string "Alice")
 
 -- Find unique entity (e.g., by email)
-let user := db.findOneByAttrValue
+let user := db.entityWithAttrValue
   (Attribute.mk ":person/email")
   (Value.string "alice@example.com")
 ```
@@ -137,8 +137,8 @@ let user := db.findOneByAttrValue
 DSL shortcuts:
 
 ```lean
-let users := DSL.findByStr db ":person/name" "Alice"
-let user := DSL.findOneByStr db ":person/email" "alice@example.com"
+let users := DSL.entitiesWithAttrValueStr db ":person/name" "Alice"
+let user := DSL.entityWithAttrValueStr db ":person/email" "alice@example.com"
 ```
 
 ### Finding Entities with an Attribute
@@ -148,7 +148,7 @@ let user := DSL.findOneByStr db ":person/email" "alice@example.com"
 let people := db.entitiesWithAttr (Attribute.mk ":person/name")
 
 -- DSL version
-let people := DSL.allWith db ":person/name"
+let people := DSL.entitiesWithAttr db ":person/name"
 ```
 
 ### Datalog Queries

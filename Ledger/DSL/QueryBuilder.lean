@@ -171,7 +171,7 @@ end QueryBuilder
 def query : QueryBuilder := QueryBuilder.new
 
 /-- Quick query: find entities with a specific attribute. -/
-def findEntitiesWith (db : Db) (attr : String) : List EntityId :=
+def entitiesWithAttr (db : Db) (attr : String) : List EntityId :=
   let pattern : Pattern := {
     entity := .var ⟨"e"⟩
     attr := .attr (Attribute.mk attr)
@@ -180,7 +180,7 @@ def findEntitiesWith (db : Db) (attr : String) : List EntityId :=
   Query.findEntities pattern db
 
 /-- Quick query: find entities where attr = value (int). -/
-def findEntitiesWhereInt (db : Db) (attr : String) (v : Int) : List EntityId :=
+def entitiesWithAttrValueInt (db : Db) (attr : String) (v : Int) : List EntityId :=
   let pattern : Pattern := {
     entity := .var ⟨"e"⟩
     attr := .attr (Attribute.mk attr)
@@ -189,7 +189,7 @@ def findEntitiesWhereInt (db : Db) (attr : String) (v : Int) : List EntityId :=
   Query.findEntities pattern db
 
 /-- Quick query: find entities where attr = value (string). -/
-def findEntitiesWhereStr (db : Db) (attr : String) (v : String) : List EntityId :=
+def entitiesWithAttrValueStr (db : Db) (attr : String) (v : String) : List EntityId :=
   let pattern : Pattern := {
     entity := .var ⟨"e"⟩
     attr := .attr (Attribute.mk attr)
@@ -198,8 +198,24 @@ def findEntitiesWhereStr (db : Db) (attr : String) (v : String) : List EntityId 
   Query.findEntities pattern db
 
 /-- Quick query: find entity by unique attribute value. -/
+def entityWithAttrValueStr (db : Db) (attr : String) (v : String) : Option EntityId :=
+  (entitiesWithAttrValueStr db attr v).head?
+
+@[deprecated "use entitiesWithAttr" (since := "2026-02-04")]
+def findEntitiesWith (db : Db) (attr : String) : List EntityId :=
+  entitiesWithAttr db attr
+
+@[deprecated "use entitiesWithAttrValueInt" (since := "2026-02-04")]
+def findEntitiesWhereInt (db : Db) (attr : String) (v : Int) : List EntityId :=
+  entitiesWithAttrValueInt db attr v
+
+@[deprecated "use entitiesWithAttrValueStr" (since := "2026-02-04")]
+def findEntitiesWhereStr (db : Db) (attr : String) (v : String) : List EntityId :=
+  entitiesWithAttrValueStr db attr v
+
+@[deprecated "use entityWithAttrValueStr" (since := "2026-02-04")]
 def findEntityByStr (db : Db) (attr : String) (v : String) : Option EntityId :=
-  (findEntitiesWhereStr db attr v).head?
+  entityWithAttrValueStr db attr v
 
 end DSL
 

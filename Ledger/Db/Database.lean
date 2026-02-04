@@ -348,12 +348,20 @@ def entitiesWithAttr (db : Db) (a : Attribute) : List EntityId :=
 -- ============================================================
 
 /-- Find entities where attribute equals a specific value. -/
-def findByAttrValue (db : Db) (a : Attribute) (v : Value) : List EntityId :=
+def entitiesWithAttrValue (db : Db) (a : Attribute) (v : Value) : List EntityId :=
   db.indexes.entitiesWithAttrValue a v
 
 /-- Find a single entity by unique attribute value. -/
-def findOneByAttrValue (db : Db) (a : Attribute) (v : Value) : Option EntityId :=
+def entityWithAttrValue (db : Db) (a : Attribute) (v : Value) : Option EntityId :=
   db.indexes.entityWithAttrValue a v
+
+@[deprecated "use entitiesWithAttrValue" (since := "2026-02-04")]
+def findByAttrValue (db : Db) (a : Attribute) (v : Value) : List EntityId :=
+  db.entitiesWithAttrValue a v
+
+@[deprecated "use entityWithAttrValue" (since := "2026-02-04")]
+def findOneByAttrValue (db : Db) (a : Attribute) (v : Value) : Option EntityId :=
+  db.entityWithAttrValue a v
 
 -- ============================================================
 -- Reverse reference queries (use VAET index)

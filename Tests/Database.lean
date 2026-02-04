@@ -199,7 +199,7 @@ test "Find by email" := do
     .add bob (Attribute.mk ":person/email") (Value.string "bob@example.com")
   ]
   let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
-  let aliceByEmail := db.findOneByAttrValue
+  let aliceByEmail := db.entityWithAttrValue
     (Attribute.mk ":person/email") (Value.string "alice@example.com")
   aliceByEmail ≡ some alice
 
@@ -212,7 +212,7 @@ test "Find by age 30" := do
     .add alice (Attribute.mk ":person/age") (Value.int 30)
   ]
   let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
-  let age30 := db.findByAttrValue (Attribute.mk ":person/age") (Value.int 30)
+  let age30 := db.entitiesWithAttrValue (Attribute.mk ":person/age") (Value.int 30)
   age30.length ≡ 2
 
 test "Not found returns none" := do
@@ -222,7 +222,7 @@ test "Not found returns none" := do
     .add alice (Attribute.mk ":person/email") (Value.string "alice@example.com")
   ]
   let .ok (db, _) := db.transact tx | throw <| IO.userError "Tx failed"
-  let notFound := db.findOneByAttrValue
+  let notFound := db.entityWithAttrValue
     (Attribute.mk ":person/email") (Value.string "nobody@example.com")
   ensure notFound.isNone "Non-existent email should return none"
 

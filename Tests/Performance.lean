@@ -165,12 +165,12 @@ test "entitiesWithAttr at scale" := do
 
 /-! ## Value Lookup Performance (AVET) -/
 
-test "findByAttrValue at scale" := do
+test "entitiesWithAttrValue at scale" := do
   let (db, _) ← createPeopleInDept 5000 "Engineering"
   let (_, elapsed) ← timeMs do
     for _ in [:100] do
-      let _ := db.findByAttrValue personDept (.string "Engineering")
-  IO.println s!"  100 findByAttrValue in 5000-entity db: {elapsed}ms"
+      let _ := db.entitiesWithAttrValue personDept (.string "Engineering")
+  IO.println s!"  100 entitiesWithAttrValue in 5000-entity db: {elapsed}ms"
   ensure (elapsed < 30000) s!"Too slow: {elapsed}ms"
 
 /-! ## Reverse Reference Performance (VAET) -/
@@ -301,12 +301,12 @@ test "STRESS: getOne scaling 10000 entities" := do
   IO.println s!"  5000 getOne calls in 10000-entity db: {elapsed}ms"
   ensure (elapsed < 30000) s!"Too slow: {elapsed}ms"
 
-test "STRESS: findByAttrValue 10000 entities" := do
+test "STRESS: entitiesWithAttrValue 10000 entities" := do
   let (db, _) ← createPeopleInDept 10000 "Engineering"
   let (_, elapsed) ← timeMs do
     for _ in [:100] do
-      let _ := db.findByAttrValue personDept (.string "Engineering")
-  IO.println s!"  100 findByAttrValue in 10000-entity db: {elapsed}ms"
+      let _ := db.entitiesWithAttrValue personDept (.string "Engineering")
+  IO.println s!"  100 entitiesWithAttrValue in 10000-entity db: {elapsed}ms"
   -- This is where O(n*m) should really show up
   ensure (elapsed < 120000) s!"Too slow: {elapsed}ms"
 

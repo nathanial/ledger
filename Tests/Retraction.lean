@@ -84,7 +84,7 @@ test "Valid retraction still works" := do
 
 /-! ## Retraction Filtering in Value Queries (AVET) Tests -/
 
-test "findByAttrValue excludes retracted entity" := do
+test "entitiesWithAttrValue excludes retracted entity" := do
   let conn := Connection.create
   let (alice, conn) := conn.allocEntityId
   let (bob, conn) := conn.allocEntityId
@@ -100,10 +100,10 @@ test "findByAttrValue excludes retracted entity" := do
   ]
   let .ok (conn, _) := conn.transact tx2 | throw <| IO.userError "Tx2 failed"
   -- Should only find Bob
-  let active := conn.db.findByAttrValue (Attribute.mk ":person/tag") (Value.string "active")
+  let active := conn.db.entitiesWithAttrValue (Attribute.mk ":person/tag") (Value.string "active")
   active.length ≡ 1
 
-test "findByAttrValue excludes retracted entity - contains check" := do
+test "entitiesWithAttrValue excludes retracted entity - contains check" := do
   let conn := Connection.create
   let (alice, conn) := conn.allocEntityId
   let (bob, conn) := conn.allocEntityId
@@ -116,10 +116,10 @@ test "findByAttrValue excludes retracted entity - contains check" := do
     .retract alice (Attribute.mk ":person/tag") (Value.string "active")
   ]
   let .ok (conn, _) := conn.transact tx2 | throw <| IO.userError "Tx2 failed"
-  let active := conn.db.findByAttrValue (Attribute.mk ":person/tag") (Value.string "active")
+  let active := conn.db.entitiesWithAttrValue (Attribute.mk ":person/tag") (Value.string "active")
   ensure (active.contains bob) "Should contain bob"
 
-test "findByAttrValue excludes retracted entity - alice not present" := do
+test "entitiesWithAttrValue excludes retracted entity - alice not present" := do
   let conn := Connection.create
   let (alice, conn) := conn.allocEntityId
   let (bob, conn) := conn.allocEntityId
@@ -132,10 +132,10 @@ test "findByAttrValue excludes retracted entity - alice not present" := do
     .retract alice (Attribute.mk ":person/tag") (Value.string "active")
   ]
   let .ok (conn, _) := conn.transact tx2 | throw <| IO.userError "Tx2 failed"
-  let active := conn.db.findByAttrValue (Attribute.mk ":person/tag") (Value.string "active")
+  let active := conn.db.entitiesWithAttrValue (Attribute.mk ":person/tag") (Value.string "active")
   ensure (!active.contains alice) "Should not contain retracted alice"
 
-test "findOneByAttrValue returns none for retracted" := do
+test "entityWithAttrValue returns none for retracted" := do
   let conn := Connection.create
   let (alice, conn) := conn.allocEntityId
   let tx1 : Transaction := [
@@ -146,7 +146,7 @@ test "findOneByAttrValue returns none for retracted" := do
     .retract alice (Attribute.mk ":person/email") (Value.string "alice@example.com")
   ]
   let .ok (conn, _) := conn.transact tx2 | throw <| IO.userError "Tx2 failed"
-  let found := conn.db.findOneByAttrValue
+  let found := conn.db.entityWithAttrValue
     (Attribute.mk ":person/email") (Value.string "alice@example.com")
   ensure found.isNone "Retracted email should not be found"
 
@@ -169,7 +169,7 @@ test "Re-assertion after retraction is visible" := do
   ]
   let .ok (conn, _) := conn.transact tx3 | throw <| IO.userError "Tx3 failed"
   -- Should find Alice again
-  let active := conn.db.findByAttrValue (Attribute.mk ":person/tag") (Value.string "active")
+  let active := conn.db.entitiesWithAttrValue (Attribute.mk ":person/tag") (Value.string "active")
   active.length ≡ 1
 
 test "Re-assertion after retraction contains entity" := do
@@ -187,7 +187,7 @@ test "Re-assertion after retraction contains entity" := do
     .add alice (Attribute.mk ":person/tag") (Value.string "active")
   ]
   let .ok (conn, _) := conn.transact tx3 | throw <| IO.userError "Tx3 failed"
-  let active := conn.db.findByAttrValue (Attribute.mk ":person/tag") (Value.string "active")
+  let active := conn.db.entitiesWithAttrValue (Attribute.mk ":person/tag") (Value.string "active")
   ensure (active.contains alice) "Re-asserted alice should be found"
 
 test "Multiple entities with mixed retractions" := do
@@ -211,7 +211,7 @@ test "Multiple entities with mixed retractions" := do
   ]
   let .ok (conn, _) := conn.transact tx2 | throw <| IO.userError "Tx2 failed"
   -- Should find only e1 and e3
-  let owned := conn.db.findByAttrValue (Attribute.mk ":todo/owner") (Value.ref ⟨100⟩)
+  let owned := conn.db.entitiesWithAttrValue (Attribute.mk ":todo/owner") (Value.ref ⟨100⟩)
   owned.length ≡ 2
 
 test "Multiple entities with mixed retractions - correct entities" := do
@@ -232,7 +232,7 @@ test "Multiple entities with mixed retractions - correct entities" := do
     .retract e4 (Attribute.mk ":todo/owner") (Value.ref ⟨100⟩)
   ]
   let .ok (conn, _) := conn.transact tx2 | throw <| IO.userError "Tx2 failed"
-  let owned := conn.db.findByAttrValue (Attribute.mk ":todo/owner") (Value.ref ⟨100⟩)
+  let owned := conn.db.entitiesWithAttrValue (Attribute.mk ":todo/owner") (Value.ref ⟨100⟩)
   ensure (owned.contains e1 && owned.contains e3) "Should contain e1 and e3"
 
 test "Multiple entities with mixed retractions - excluded entities" := do
@@ -253,7 +253,7 @@ test "Multiple entities with mixed retractions - excluded entities" := do
     .retract e4 (Attribute.mk ":todo/owner") (Value.ref ⟨100⟩)
   ]
   let .ok (conn, _) := conn.transact tx2 | throw <| IO.userError "Tx2 failed"
-  let owned := conn.db.findByAttrValue (Attribute.mk ":todo/owner") (Value.ref ⟨100⟩)
+  let owned := conn.db.entitiesWithAttrValue (Attribute.mk ":todo/owner") (Value.ref ⟨100⟩)
   ensure (!owned.contains e2 && !owned.contains e4) "Should not contain e2 and e4"
 
 /-! ## Time Travel Tests -/

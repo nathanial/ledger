@@ -13,6 +13,7 @@ import Ledger.Db.Database
 import Ledger.Db.Connection
 import Ledger.Query.AST
 import Ledger.Query.Executor
+import Ledger.DSL.QueryBuilder
 import Ledger.Pull.Executor
 
 namespace Ledger
@@ -63,21 +64,24 @@ def removeAttr (db : Db) (e : EntityId) (attr : String) (v : Value) : Except TxE
 -- Query Shortcuts
 -- ============================================================
 
-/-- Find all entities with a given attribute. -/
+@[deprecated "use entitiesWithAttr" (since := "2026-02-04")]
 def allWith (db : Db) (attr : String) : List EntityId :=
-  db.entitiesWithAttr (Attribute.mk attr)
+  entitiesWithAttr db attr
 
 /-- Find entities where attr = string value. -/
+@[deprecated "use entitiesWithAttrValueStr" (since := "2026-02-04")]
 def findByStr (db : Db) (attr : String) (v : String) : List EntityId :=
-  db.findByAttrValue (Attribute.mk attr) (.string v)
+  entitiesWithAttrValueStr db attr v
 
 /-- Find entities where attr = int value. -/
+@[deprecated "use entitiesWithAttrValueInt" (since := "2026-02-04")]
 def findByInt (db : Db) (attr : String) (v : Int) : List EntityId :=
-  db.findByAttrValue (Attribute.mk attr) (.int v)
+  entitiesWithAttrValueInt db attr v
 
 /-- Find single entity where attr = string (unique lookup). -/
+@[deprecated "use entityWithAttrValueStr" (since := "2026-02-04")]
 def findOneByStr (db : Db) (attr : String) (v : String) : Option EntityId :=
-  db.findOneByAttrValue (Attribute.mk attr) (.string v)
+  entityWithAttrValueStr db attr v
 
 /-- Get string value of an attribute. -/
 def attrStr (db : Db) (e : EntityId) (attr : String) : Option String :=

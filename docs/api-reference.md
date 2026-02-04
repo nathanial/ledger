@@ -174,8 +174,8 @@ structure Db where
 
 | Function | Type | Description |
 |----------|------|-------------|
-| `Db.findByAttrValue` | `Db -> Attribute -> Value -> List EntityId` | Find by attr=value |
-| `Db.findOneByAttrValue` | `Db -> Attribute -> Value -> Option EntityId` | Find unique by attr=value |
+| `Db.entitiesWithAttrValue` | `Db -> Attribute -> Value -> List EntityId` | Find by attr=value |
+| `Db.entityWithAttrValue` | `Db -> Attribute -> Value -> Option EntityId` | Find unique by attr=value |
 
 #### Reverse References (VAET)
 
@@ -528,11 +528,18 @@ High-level convenience functions.
 
 | Function | Type | Description |
 |----------|------|-------------|
-| `DSL.allWith` | `Db -> String -> List EntityId` | Entities with attribute |
-| `DSL.findByStr` | `Db -> String -> String -> List EntityId` | Find by string value |
-| `DSL.findByInt` | `Db -> String -> Int -> List EntityId` | Find by int value |
-| `DSL.findOneByStr` | `Db -> String -> String -> Option EntityId` | Unique string lookup |
-| `DSL.findEntitiesWith` | `Db -> String -> List EntityId` | Alias for allWith |
+| `DSL.entitiesWithAttr` | `Db -> String -> List EntityId` | Entities with attribute |
+| `DSL.entitiesWithAttrValueStr` | `Db -> String -> String -> List EntityId` | Find by string value |
+| `DSL.entitiesWithAttrValueInt` | `Db -> String -> Int -> List EntityId` | Find by int value |
+| `DSL.entityWithAttrValueStr` | `Db -> String -> String -> Option EntityId` | Unique string lookup |
+| `DSL.allWith` | `Db -> String -> List EntityId` | Deprecated alias for entitiesWithAttr |
+| `DSL.findByStr` | `Db -> String -> String -> List EntityId` | Deprecated alias for entitiesWithAttrValueStr |
+| `DSL.findByInt` | `Db -> String -> Int -> List EntityId` | Deprecated alias for entitiesWithAttrValueInt |
+| `DSL.findOneByStr` | `Db -> String -> String -> Option EntityId` | Deprecated alias for entityWithAttrValueStr |
+| `DSL.findEntitiesWith` | `Db -> String -> List EntityId` | Deprecated alias for entitiesWithAttr |
+| `DSL.findEntitiesWhereInt` | `Db -> String -> Int -> List EntityId` | Deprecated alias for entitiesWithAttrValueInt |
+| `DSL.findEntitiesWhereStr` | `Db -> String -> String -> List EntityId` | Deprecated alias for entitiesWithAttrValueStr |
+| `DSL.findEntityByStr` | `Db -> String -> String -> Option EntityId` | Deprecated alias for entityWithAttrValueStr |
 
 ### Attribute Access
 
