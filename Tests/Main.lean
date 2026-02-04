@@ -12,6 +12,7 @@ import Tests.Query
 import Tests.Binding
 import Tests.Predicate
 import Tests.Pull
+import Tests.TimeTravel
 import Tests.DSL
 import Tests.Persistence
 import Tests.Derive

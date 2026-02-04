@@ -45,6 +45,22 @@ test "Type validation fails for wrong type" := do
     let parts := errStr.splitOn "Type mismatch"
     (decide (parts.length >= 2)) ≡ true
 
+test "Schema violation uses TxError.schemaViolation" := do
+  let schema := DSL.schema
+    |>.string ":person/name"
+    |>.build
+  let db := Db.empty.withSchema schema true
+  let (e1, db) := db.allocEntityId
+  let tx : Transaction := [
+    .add e1 ⟨":person/age"⟩ (.int 30)
+  ]
+  match db.transact tx with
+  | .ok _ => throw <| IO.userError "Expected schemaViolation"
+  | .error (.schemaViolation msg) =>
+    let parts := msg.splitOn "Undefined attribute"
+    (decide (parts.length >= 2)) ≡ true
+  | .error _ => throw <| IO.userError "Expected schemaViolation error type"
+
 /-! ## Cardinality Tests -/
 
 test "Cardinality-one allows single value" := do

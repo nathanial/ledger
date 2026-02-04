@@ -71,6 +71,16 @@ test "Unknown tx function errors" := do
   | .error err => toString err ≡ "Unknown transaction function: :test/missing"
   | .ok _ => throw <| IO.userError "Expected tx function error"
 
+test "Unknown tx function is TxError.custom" := do
+  let db := Db.empty
+  let tx : Transaction := [
+    .call ":test/missing" []
+  ]
+  match db.transactWith TxFuncRegistry.empty tx with
+  | .error (.custom msg) => msg ≡ "Unknown transaction function: :test/missing"
+  | .error _ => throw <| IO.userError "Expected TxError.custom"
+  | .ok _ => throw <| IO.userError "Expected tx function error"
+
 test "Tx function expansion depth limit" := do
   let db := Db.empty
   let loopFn : TxFunction := fun _ _ => do
