@@ -143,4 +143,16 @@ test "DSL: EntityBuilder score" := do
   let .ok (db, _) := eb.done.run db | throw <| IO.userError "EntityBuilder failed"
   DSL.attrInt db alice ":person/score" ≡ some 100
 
+test "DSL: withNewEntity propagates error" := do
+  let schema := DSL.schema
+    |>.string ":person/name"
+    |>.build
+  let db := Db.empty.withSchema schema true
+  let result := DSL.withNewEntity db fun e tb =>
+    tb.addInt e ":person/age" 30
+  match result with
+  | .error (.schemaViolation _) => pure ()
+  | .error _ => throw <| IO.userError "Expected schemaViolation"
+  | .ok _ => throw <| IO.userError "Expected error from withNewEntity"
+
 end Ledger.Tests.DSL

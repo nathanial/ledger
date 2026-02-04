@@ -27,6 +27,9 @@ structure Datom where
   added : Bool := true
   deriving Repr, Inhabited, DecidableEq
 
+/-- Sequence of datoms. -/
+abbrev DatomSeq := List Datom
+
 namespace Datom
 
 instance : ToString Datom where

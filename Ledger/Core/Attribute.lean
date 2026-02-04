@@ -16,9 +16,6 @@ structure Attribute where
 
 namespace Attribute
 
-instance : BEq Attribute where
-  beq a b := a.name == b.name
-
 instance : Ord Attribute where
   compare a b := compare a.name b.name
 

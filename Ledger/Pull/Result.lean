@@ -23,6 +23,9 @@ inductive PullValue where
   | many (values : List PullValue)
   deriving Repr, Inhabited
 
+/-- Alias for nested pull data. -/
+abbrev PullEntity := List (Attribute × PullValue)
+
 namespace PullValue
 
 /-- Check if this is a scalar value. -/
@@ -56,7 +59,7 @@ def asRef? : PullValue → Option EntityId
   | _ => none
 
 /-- Get nested data if this is an entity. -/
-def asEntity? : PullValue → Option (List (Attribute × PullValue))
+def asEntity? : PullValue → Option PullEntity
   | .entity data => some data
   | _ => none
 
@@ -73,7 +76,7 @@ structure PullResult where
   /-- The entity that was pulled. -/
   entity : EntityId
   /-- The pulled data. -/
-  data : List (Attribute × PullValue)
+  data : PullEntity
   deriving Repr, Inhabited
 
 namespace PullResult

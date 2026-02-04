@@ -157,7 +157,7 @@ private def expandRetractEntities (db : Db) (tx : Transaction) : Except TxError 
   return expanded
 
 /-- Build current fact map from a list of datoms (in transaction order). -/
-def currentFactsFromDatoms (datoms : List Datom) : Std.HashMap FactKey Datom :=
+def currentFactsFromDatoms (datoms : DatomSeq) : Std.HashMap FactKey Datom :=
   datoms.foldl (init := {}) fun acc d => applyCurrentFact acc d
 
 /-- Read-only view for tx functions. -/
@@ -285,7 +285,7 @@ def transact (db : Db) (tx : Transaction) (instant : Nat := 0) : Except TxError 
 -- ============================================================
 
 /-- Get all datoms for an entity. -/
-def entity (db : Db) (e : EntityId) : List Datom :=
+def entity (db : Db) (e : EntityId) : DatomSeq :=
   db.indexes.datomsForEntity e
 
 /-- Filter datoms to get only visible (not retracted) values.
@@ -336,7 +336,7 @@ def getOne (db : Db) (e : EntityId) (a : Attribute) : Option Value :=
 -- ============================================================
 
 /-- Get all datoms with a specific attribute across all entities. -/
-def datomsWithAttr (db : Db) (a : Attribute) : List Datom :=
+def datomsWithAttr (db : Db) (a : Attribute) : DatomSeq :=
   db.indexes.datomsForAttr a
 
 /-- Get all entities that have a specific attribute. -/
@@ -364,7 +364,7 @@ def referencingEntities (db : Db) (target : EntityId) : List EntityId :=
   db.indexes.entitiesReferencing target
 
 /-- Get all datoms that reference a specific entity. -/
-def referencingDatoms (db : Db) (target : EntityId) : List Datom :=
+def referencingDatoms (db : Db) (target : EntityId) : DatomSeq :=
   db.indexes.datomsReferencingEntity target
 
 /-- Get entities referencing target via a specific attribute. -/
@@ -376,7 +376,7 @@ def referencingViaAttr (db : Db) (target : EntityId) (a : Attribute) : List Enti
 -- ============================================================
 
 /-- Get all datoms in the database. -/
-def datoms (db : Db) : List Datom :=
+def datoms (db : Db) : DatomSeq :=
   db.indexes.allDatoms
 
 -- ============================================================

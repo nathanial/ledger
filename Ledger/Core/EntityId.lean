@@ -16,9 +16,6 @@ structure EntityId where
 
 namespace EntityId
 
-instance : BEq EntityId where
-  beq a b := a.id == b.id
-
 instance : Ord EntityId where
   compare a b := compare a.id b.id
 
@@ -47,9 +44,6 @@ structure TxId where
   deriving Repr, DecidableEq, Hashable, Inhabited
 
 namespace TxId
-
-instance : BEq TxId where
-  beq a b := a.id == b.id
 
 instance : Ord TxId where
   compare a b := compare a.id b.id

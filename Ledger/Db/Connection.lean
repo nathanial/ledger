@@ -113,7 +113,7 @@ def asOf (conn : Connection) (txId : TxId) : Db :=
 
 /-- Get all datoms that were asserted or retracted since a specific transaction.
     Returns the raw datoms including both assertions and retractions. -/
-def since (conn : Connection) (txId : TxId) : List Datom :=
+def since (conn : Connection) (txId : TxId) : DatomSeq :=
   let relevantTxs := conn.txLog.since txId
   (relevantTxs.map fun entry => entry.datoms.toList).flatten
 
@@ -122,12 +122,12 @@ def txData (conn : Connection) (txId : TxId) : Option TxLogEntry :=
   conn.txLog.get? txId
 
 /-- Get the full history of an entity (all assertions and retractions). -/
-def entityHistory (conn : Connection) (entity : EntityId) : List Datom :=
+def entityHistory (conn : Connection) (entity : EntityId) : DatomSeq :=
   let allDatoms := (conn.txLog.toList.map fun entry => entry.datoms.toList).flatten
   TimeTravel.entityHistory allDatoms entity
 
 /-- Get the full history of a specific attribute on an entity. -/
-def attrHistory (conn : Connection) (entity : EntityId) (attr : Attribute) : List Datom :=
+def attrHistory (conn : Connection) (entity : EntityId) (attr : Attribute) : DatomSeq :=
   let allDatoms := (conn.txLog.toList.map fun entry => entry.datoms.toList).flatten
   TimeTravel.attrHistory allDatoms entity attr
 

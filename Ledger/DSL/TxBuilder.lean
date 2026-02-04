@@ -162,12 +162,13 @@ def TxBuilder.entity (tb : TxBuilder) (e : EntityId) : EntityBuilder :=
   { entity := e, txBuilder := tb }
 
 /-- Convenience: create a new entity and add attributes in one go. -/
-def withNewEntity (db : Db) (f : EntityId → TxBuilder → TxBuilder) : Db × EntityId × TxReport :=
+def withNewEntity (db : Db) (f : EntityId → TxBuilder → TxBuilder) :
+    Except TxError (Db × EntityId × TxReport) := do
   let (e, db) := db.allocEntityId
   let tb := f e TxBuilder.new
   match db.transact tb.ops with
-  | .ok (db', report) => (db', e, report)
-  | .error _ => (db, e, { txId := TxId.genesis, txData := #[], txInstant := 0 })
+  | .ok (db', report) => return (db', e, report)
+  | .error err => throw err
 
 end DSL
 

@@ -61,8 +61,6 @@ abbrev Transaction := List TxOp
 inductive TxError where
   /-- Attempted to retract a fact that doesn't exist. -/
   | factNotFound (entity : EntityId) (attr : Attribute) (value : Value)
-  /-- Invalid entity ID. -/
-  | invalidEntity (entity : EntityId)
   /-- Generic error with message. -/
   | custom (msg : String)
   /-- Schema validation failed. -/
@@ -74,7 +72,6 @@ namespace TxError
 instance : ToString TxError where
   toString err := match err with
     | .factNotFound e a v => s!"Fact not found: [{e} {a} {v}]"
-    | .invalidEntity e => s!"Invalid entity: {e}"
     | .custom msg => msg
     | .schemaViolation msg => s!"Schema violation: {msg}"
 

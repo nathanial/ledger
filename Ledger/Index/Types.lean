@@ -16,16 +16,9 @@ structure EAVTKey where
   attr : Attribute
   value : Value
   tx : TxId
-  deriving Repr, Inhabited
+  deriving Repr, Inhabited, DecidableEq
 
 namespace EAVTKey
-
-instance : BEq EAVTKey where
-  beq a b :=
-    a.entity == b.entity &&
-    a.attr == b.attr &&
-    a.value == b.value &&
-    a.tx == b.tx
 
 instance : Ord EAVTKey where
   compare a b :=
@@ -87,16 +80,9 @@ structure AEVTKey where
   entity : EntityId
   value : Value
   tx : TxId
-  deriving Repr, Inhabited
+  deriving Repr, Inhabited, DecidableEq
 
 namespace AEVTKey
-
-instance : BEq AEVTKey where
-  beq a b :=
-    a.attr == b.attr &&
-    a.entity == b.entity &&
-    a.value == b.value &&
-    a.tx == b.tx
 
 instance : Ord AEVTKey where
   compare a b :=
@@ -138,16 +124,9 @@ structure AVETKey where
   value : Value
   entity : EntityId
   tx : TxId
-  deriving Repr, Inhabited
+  deriving Repr, Inhabited, DecidableEq
 
 namespace AVETKey
-
-instance : BEq AVETKey where
-  beq a b :=
-    a.attr == b.attr &&
-    a.value == b.value &&
-    a.entity == b.entity &&
-    a.tx == b.tx
 
 instance : Ord AVETKey where
   compare a b :=
@@ -183,16 +162,9 @@ structure VAETKey where
   attr : Attribute
   entity : EntityId
   tx : TxId
-  deriving Repr, Inhabited
+  deriving Repr, Inhabited, DecidableEq
 
 namespace VAETKey
-
-instance : BEq VAETKey where
-  beq a b :=
-    a.value == b.value &&
-    a.attr == b.attr &&
-    a.entity == b.entity &&
-    a.tx == b.tx
 
 instance : Ord VAETKey where
   compare a b :=

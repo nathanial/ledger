@@ -264,8 +264,8 @@ Transaction errors.
 ```lean
 inductive TxError where
   | factNotFound : EntityId -> Attribute -> Value -> TxError
-  | invalidEntity : EntityId -> TxError
   | custom : String -> TxError
+  | schemaViolation : String -> TxError
 ```
 
 ### TxReport

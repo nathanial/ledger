@@ -71,7 +71,7 @@ def getAllAttrs (db : Db) (e : EntityId) : List Attribute :=
     if acc.contains a then acc else a :: acc
 
 /-- Pull all attributes for an entity (wildcard pattern). -/
-def pullWildcard (db : Db) (e : EntityId) : List (Attribute × PullValue) :=
+def pullWildcard (db : Db) (e : EntityId) : PullEntity :=
   let attrs := getAllAttrs db e
   attrs.filterMap fun a =>
     match pullAttr db e a with
